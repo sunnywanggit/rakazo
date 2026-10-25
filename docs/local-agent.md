@@ -2,6 +2,8 @@
 
 Rakazo can route a selected bot to a separate host helper running `codex app-server`. Ordinary bots keep their existing runtime and computer. The helper accepts project IDs and scoped run requests, never arbitrary commands, paths or environment values from clients. The first release supports native project tools, text, questions and bounded file approvals. Docker/browser tools, connectors, voice turns, uploaded attachments and importing existing Codex chats are unavailable for this execution source.
 
+Detailed component and sequence diagrams: [本机 Codex 架构图](local-agent-architecture.md).
+
 ## Enable after updating every worker
 
 Apply the additive database migration and update **all** API and worker processes while `LOCAL_AGENT_ALLOWED_ORIGINS` is unset. Only then set this generic optional variable to the helper's exact origin in both services, for example `http://127.0.0.1:8789`. Leave it unset to keep local-agent settings unavailable. Existing bots require no new service or vendor account.
