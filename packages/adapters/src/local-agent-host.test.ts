@@ -181,6 +181,38 @@ describe("local host boundary", () => {
     await f.call("/v1/sessions/release", selector);
     expect(f.executions[1]!.cancel).not.toHaveBeenCalled();
   });
+  it("finishes cleanup intents after Host restart without replaying work or stopping later turns", async () => {
+    const f = await fixture();
+    const release = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline cleanup fixture"))
+      .mockResolvedValue(undefined);
+    Object.assign(f.options.engine, { release });
+    await f.begin();
+    const selector = {
+      scope: input.scope,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      idempotencyKey: "interrupted-release",
+    };
+    expect((await f.call("/v1/sessions/release", selector)).status).toBe(500);
+    expect((await f.call("/v1/runs", { ...input, runId: "blocked" })).status).toBe(423);
+    await f.close();
+    const restarted = await startLocalAgentHost(f.options);
+    cleanups.push(() => restarted.close());
+    expect(release).toHaveBeenCalledTimes(2);
+    const call = (route: string, data: unknown) =>
+      fetch(`http://127.0.0.1:${restarted.port}${route}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.options.token}` },
+        body: JSON.stringify(data),
+      });
+    expect((await call("/v1/runs", { ...input, runId: "new-user-turn" })).status).toBe(200);
+    await vi.waitFor(() => expect(f.start).toHaveBeenCalledTimes(2));
+    expect((await call("/v1/sessions/release", selector)).status).toBe(200);
+    expect(f.executions[1]!.cancel).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(2);
+  });
   it("persists first activity while engine initialization is still blocked", async () => {
     let ready!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -341,6 +373,23 @@ describe("local host boundary", () => {
     await f.begin();
     await vi.waitFor(() => expect(f.executions[0]!.cancel).toHaveBeenCalledTimes(1));
     expect((await (await f.call("/v1/runs/run")).json()).status).toBe("cancelled");
+  });
+  it("expires blocked interactions and rejects their late decisions", async () => {
+    const f = await fixture({ leaseMs: 30 });
+    await f.begin();
+    await f.executions[0]!.emit({
+      type: "interaction",
+      interaction: {
+        id: "expired",
+        kind: "approval",
+        summary: "Fixture patch",
+        expiresAt: new Date(Date.now() + 30).toISOString(),
+      },
+    });
+    await vi.waitFor(() => expect(f.executions[0]!.cancel).toHaveBeenCalledOnce());
+    expect(
+      (await f.call("/v1/runs/run/interactions/expired", { fence: 1, decision: "allow" })).status,
+    ).toBe(409);
   });
 
   it("rejects writes for read-only projects and concurrent project writers", async () => {

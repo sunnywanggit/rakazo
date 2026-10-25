@@ -45,6 +45,7 @@ async function main() {
   const config = configSchema.parse(await readLocalAgentPrivateFile(process.argv[3]!));
   const engine = new CodexAppServerEngine({
     executable: config.engine.executable,
+    reusePolicy: config.lifecycle,
     onTiming: (sample) =>
       process.stdout.write(`${JSON.stringify({ event: "local_agent.phase", ...sample })}\n`),
   });

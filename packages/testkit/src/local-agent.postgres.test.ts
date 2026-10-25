@@ -85,6 +85,7 @@ describe.skipIf(!available)("local Codex through the authenticated API and worke
         root: path.join(fixture.base, "host"),
         token,
         engine: fixture.engine,
+        sessionReuse: true,
         projects: [{ id: "project", label: "Fixture", root: fixture.cwd, access: "write" }],
         bindings: [
           {
@@ -136,7 +137,13 @@ describe.skipIf(!available)("local Codex through the authenticated API and worke
       expect(native).toHaveLength(2);
       expect(native[0]!.sessionId).toBe(native[1]!.sessionId);
       const wire = await readFile(path.join(fixture.base, "wire.jsonl"), "utf8");
-      expect(wire).toContain('"method":"thread/resume"');
+      const frames = wire
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(frames.filter((frame) => frame.method === "initialize")).toHaveLength(2); // Catalog + one execution process.
+      expect(frames.filter((frame) => frame.method === "thread/resume")).toHaveLength(0);
+      expect(frames.filter((frame) => frame.method === "turn/start")).toHaveLength(2);
       const raw = await db.$queryRaw<
         Array<{ request: string }>
       >`SELECT request FROM local_agent_runs WHERE id = ${first.runId}`;
@@ -180,9 +187,8 @@ describe.skipIf(!available)("local Codex through the authenticated API and worke
       // A graceful API/worker restart must keep the native turn alive and consume its cursor.
       const restarting = await send("delayed");
       await expect
-        .poll(
-          async () =>
-            (await db.localAgentRun.findUnique({ where: { id: restarting.runId } }))?.cursor ?? 0,
+        .poll(async () =>
+          (await db.run.findUnique({ where: { id: restarting.runId } }))?.firstResponseAt ? 1 : 0,
         )
         .toBeGreaterThan(0);
       const beforeRestart = (await readFile(path.join(fixture.base, "wire.jsonl"), "utf8"))
@@ -237,6 +243,35 @@ describe.skipIf(!available)("local Codex through the authenticated API and worke
         answers: { choice: "one" },
       });
       await wait(answered.runId, "completed");
+      const beforeArchive = await db.localAgentRun.findUniqueOrThrow({
+        where: { id: answered.runId },
+      });
+      await call("bots/archive", { botId: bot.id });
+      await call("bots/restore", { botId: bot.id });
+      const restored = await send("inspect");
+      await wait(restored.runId, "completed");
+      expect(
+        (await db.localAgentRun.findUniqueOrThrow({ where: { id: restored.runId } })).sessionId,
+      ).toBe(beforeArchive.sessionId);
+      await call("threads/clear", { botId: bot.id });
+      const cleared = await send("inspect");
+      await wait(cleared.runId, "completed");
+      const afterClear = await db.localAgentRun.findUniqueOrThrow({ where: { id: cleared.runId } });
+      expect(afterClear.sessionId).not.toBe(beforeArchive.sessionId);
+      await call("localAgent/setTarget", {
+        botId: bot.id,
+        target: {
+          connectionId: connection.id,
+          projectId: "project",
+          model: "fake-model",
+          access: "read",
+        },
+      });
+      const changed = await send("inspect");
+      await wait(changed.runId, "completed");
+      expect(
+        (await db.localAgentRun.findUniqueOrThrow({ where: { id: changed.runId } })).sessionId,
+      ).not.toBe(afterClear.sessionId);
       for (const spaceId of [storedBot.spaceId, "other-space"]) {
         const counts = await runAsTenant({ spaceId, userId: "other-user" }, async () =>
           Promise.all([

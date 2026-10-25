@@ -32,6 +32,29 @@ async function fixture(prompt = "inspect", access: "read" | "write" = "read") {
 }
 
 describe("Codex native driver", () => {
+  it("invalidates every coalesced discovery caller when authentication changes in flight", async () => {
+    const f = await codexFixture();
+    cleanup.push(f.dispose);
+    const source = await readFile(f.executable, "utf8");
+    await writeFile(
+      f.executable,
+      source.replace(
+        "if (m.method === 'model/list') reply(m.id,{data:[{id:'fake-model',displayName:'Fake'}],nextCursor:null});",
+        "if (m.method === 'model/list') { fs.writeFileSync(path.join(process.env.HOME,'model-requested'),'ready'); const deliver=()=>{ if(fs.existsSync(path.join(process.env.HOME,'allow-model-result'))) reply(m.id,{data:[{id:'fake-model',displayName:'Fake'}],nextCursor:null}); else setTimeout(deliver,5); }; deliver(); }",
+      ),
+    );
+    const results = Promise.allSettled([f.engine.models(), f.engine.models()]);
+    await vi.waitFor(
+      async () =>
+        expect(await readFile(path.join(f.base, "model-requested"), "utf8")).toBe("ready"),
+      { timeout: 10_000 },
+    );
+    await mkdir(path.join(f.base, ".codex"), { recursive: true });
+    await writeFile(path.join(f.base, ".codex/auth.json"), "changed fixture authentication");
+    await writeFile(path.join(f.base, "allow-model-result"), "ready");
+    expect((await results).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(await f.engine.models()).toEqual([{ id: "fake-model", label: "Fake" }]);
+  });
   it("coalesces model discovery and invalidates its cache when local authentication changes", async () => {
     const f = await codexFixture();
     cleanup.push(f.dispose);
@@ -273,39 +296,48 @@ describe("Codex native driver", () => {
   });
 });
 
-it("kills the owned native process after an abrupt host exit", async () => {
-  const f = await codexFixture();
-  cleanup.push(f.dispose);
-  const source = await readFile(f.executable, "utf8");
-  await writeFile(
-    f.executable,
-    source.replace(
-      "if (prompt === 'wait') return;",
-      "if (prompt === 'wait') { setTimeout(() => fs.writeFileSync(path.join(process.env.HOME,'orphan-effect'),'bad'), 1200); return; }",
-    ),
-  );
-  const driver = fileURLToPath(new URL("./codex-app-server.ts", import.meta.url));
-  const code = `import { CodexAppServerEngine } from ${JSON.stringify(driver)};
+it.each(["active", "idle"])(
+  "kills the owned native process after an abrupt host exit while %s",
+  async (phase) => {
+    const f = await codexFixture();
+    cleanup.push(f.dispose);
+    const source = await readFile(f.executable, "utf8");
+    await writeFile(
+      f.executable,
+      source
+        .replace(
+          "if (prompt === 'wait') return;",
+          "if (prompt === 'wait') { setTimeout(() => fs.writeFileSync(path.join(process.env.HOME,'orphan-effect'),'bad'), 1200); return; }",
+        )
+        .replace(
+          "send({method:'item/agentMessage/delta',params:{threadId:thread,turnId:turn,delta:'done'}}); done();",
+          "setTimeout(() => fs.writeFileSync(path.join(process.env.HOME,'orphan-effect'),'bad'), 1200); send({method:'item/agentMessage/delta',params:{threadId:thread,turnId:turn,delta:'done'}}); done();",
+        ),
+    );
+    const driver = fileURLToPath(new URL("./codex-app-server.ts", import.meta.url));
+    const code = `import { CodexAppServerEngine } from ${JSON.stringify(driver)};
     const engine = new CodexAppServerEngine({ executable: ${JSON.stringify(f.executable)}, env: { HOME: ${JSON.stringify(f.base)}, PATH: process.env.PATH } });
-    const execution = await engine.start({ request: ${JSON.stringify({ ...f.request, prompt: "wait" })}, cwd: ${JSON.stringify(f.cwd)}, session: async () => {}, emit: async () => {} });
+    const execution = await engine.start({ request: ${JSON.stringify({ ...f.request, prompt: phase === "idle" ? "inspect" : "wait" })}, reuse: ${phase === "idle"}, cwd: ${JSON.stringify(f.cwd)}, session: async () => {}, emit: async () => {} });
+    ${phase === "idle" ? "await execution.completion;" : ""}
     process.stdout.write('ready\\n'); await execution.completion;`;
-  const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", code], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  cleanup.push(async () => {
+    const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", code], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    cleanup.push(async () => {
+      host.kill("SIGKILL");
+    });
+    await new Promise<void>((resolve, reject) => {
+      host.stdout.once("data", () => resolve());
+      host.once("error", reject);
+      host.once("exit", () => reject(new Error("Host exited before startup")));
+    });
     host.kill("SIGKILL");
-  });
-  await new Promise<void>((resolve, reject) => {
-    host.stdout.once("data", () => resolve());
-    host.once("error", reject);
-    host.once("exit", () => reject(new Error("Host exited before startup")));
-  });
-  host.kill("SIGKILL");
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  await expect(readFile(path.join(f.base, "orphan-effect"))).rejects.toMatchObject({
-    code: "ENOENT",
-  });
-});
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await expect(readFile(path.join(f.base, "orphan-effect"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);
 
 it("declines a patch whose full preview cannot fit in the approval card", async () => {
   const f = await codexFixture();

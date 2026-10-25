@@ -25,7 +25,7 @@ function ProgressFixture() {
     runId: "run-1",
     createdAt: "2026-01-01T00:00:00.000Z",
   };
-  return (
+  const controls = (
     <>
       <button
         type="button"
@@ -50,8 +50,15 @@ function ProgressFixture() {
       >
         Stop fixture
       </button>
-      <FixtureTranscript messages={[message]} running={running} showToolActivity={false} />
     </>
+  );
+  return (
+    <FixtureTranscript
+      messages={[message]}
+      running={running}
+      showToolActivity={false}
+      header={controls}
+    />
   );
 }
 

@@ -49,7 +49,7 @@ const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   for (const work of cleanup.splice(0).reverse()) await work();
 });
-async function fixture() {
+async function fixture(sessionReuse = false) {
   const f = await codexFixture();
   cleanup.push(f.dispose);
   const host = await startLocalAgentHost({
@@ -58,6 +58,7 @@ async function fixture() {
     engine: f.engine,
     projects: [{ id: "project", label: "Fixture", root: f.cwd, access: "write" }],
     bindings: [{ ...f.request.scope, projects: ["project"] }],
+    sessionReuse,
   });
   cleanup.push(() => host.close());
   const endpoint = `http://127.0.0.1:${host.port}`;
@@ -69,6 +70,43 @@ async function fixture() {
   cleanup.push(() => client.close());
   return { ...f, host, client, runtime: new LocalAgentRuntime(client) };
 }
+it("reuses a native process only after lifecycle negotiation and safely cold-resumes after release", async () => {
+  const f = await fixture(true);
+  const run = async (runId: string) => {
+    const events = [];
+    for await (const event of f.runtime.run({
+      ...f.request,
+      runId,
+      cursor: 0,
+      decisions: [],
+      allowCreate: true,
+    }))
+      events.push(event);
+    expect(events.at(-1)).toMatchObject({
+      type: "host",
+      envelope: { event: { type: "terminal", status: "completed" } },
+    });
+  };
+  const initializations = async () =>
+    (await readFile(path.join(f.base, "wire.jsonl"), "utf8"))
+      .split("\n")
+      .filter((line) => line.includes('"method":"initialize"')).length;
+  await run("first");
+  await run("second");
+  expect(await initializations()).toBe(1);
+  const release = {
+    scope: f.request.scope,
+    sessionId: f.request.sessionId,
+    projectId: f.request.projectId,
+    idempotencyKey: "release-fixture",
+  };
+  await f.client.release(release);
+  await run("third");
+  expect(await initializations()).toBe(2);
+  await f.client.release(release);
+  await run("fourth");
+  expect(await initializations()).toBe(2);
+});
 it("reattaches to a blocked process and delivers its decision without submitting a second turn", async () => {
   const f = await fixture();
   let cursor = 0,

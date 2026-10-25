@@ -2,13 +2,14 @@
 
 - Change：local-agent-responsiveness
 - Design：[local-agent-responsiveness](../../design/local-agent-responsiveness.md)
-- 用户已确认按方案依次实现与验收。执行队列：01 → 02 → 03，无并行执行。
+- 状态：三项均已依次实现并完成本地验收，未部署、未启用复用。
+- 执行顺序：01 → 02 → 03，无并行执行。完整综合验收与复盘见 [LAR-RESP-03](LAR-RESP-03-bounded-reuse.md)。
 
 | Task | 范围 | 依赖 | 状态 |
 | --- | --- | --- | --- |
 | [LAR-RESP-01](LAR-RESP-01-progress-feedback.md) | 阶段、公开摘要、重试、正文隔离及三端共享显示 | 无 | 已验收 |
 | [LAR-RESP-02](LAR-RESP-02-session-lifecycle.md) | 生命周期协商、释放、配置、计时和发现缓存 | 01 | 已验收 |
-| [LAR-RESP-03](LAR-RESP-03-bounded-reuse.md) | 同一绑定有界复用与恢复、取消、兼容综合验收 | 02 | 待执行 |
+| [LAR-RESP-03](LAR-RESP-03-bounded-reuse.md) | 同一绑定有界复用与恢复、取消、兼容综合验收 | 02 | 已验收 |
 
 ## 父级 Definition of Done
 

@@ -1,16 +1,17 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit";
-import type { LocalAgentDecision } from "@rakazo/contracts";
+import type { LocalAgentDecision, LocalAgentSessionSelector } from "@rakazo/contracts";
 import { LocalAgentInteractionSchema } from "@rakazo/contracts";
 import { localAgentProgress } from "@rakazo/core";
 import { codexExecutableIdentity, codexLocalState } from "./codex-local-state.js";
 import { spawnOwnedCommand } from "./desktop-process-tree.js";
 import { localAgentActivity } from "./local-agent-activity.js";
+import { LocalAgentSessionPool } from "./local-agent-session-pool.js";
 
 const exec = promisify(execFile);
 const inside = (root: string, candidate: unknown) => {
@@ -174,6 +175,35 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
   });
   return {
     whenClosed,
+    async idleSafe() {
+      if (closed || !child.pid) return false;
+      try {
+        // Retaining the harness must not retain a still-running tool after its Run releases the
+        // project lock. Read only PID/parent metadata; command lines can contain credentials.
+        const result = await exec("/bin/ps", ["-axo", "pid=,ppid="], {
+          env,
+          timeout: 1_000,
+          maxBuffer: 1_000_000,
+        });
+        const rows = result.stdout
+          .trim()
+          .split("\n")
+          .map((line) => line.trim().split(/\s+/).map(Number));
+        const descendants = new Set<number>([child.pid]);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const [pid, parent] of rows)
+            if (pid && parent && descendants.has(parent) && !descendants.has(pid)) {
+              descendants.add(pid);
+              changed = true;
+            }
+        }
+        return !closed && descendants.size === 2;
+      } catch {
+        return false;
+      }
+    },
     get isClosed() {
       return closed;
     },
@@ -266,8 +296,77 @@ async function boundedApproval(
   return true;
 }
 
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, canonical(item)]),
+    );
+  return value;
+}
+// Native config maps do not have a stable serialization order across requests.
+const fingerprint = (value: unknown) =>
+  createHash("sha256")
+    .update(JSON.stringify(canonical(value)))
+    .digest("hex");
+const nativeBinding = (input: LocalAgentSessionSelector) =>
+  fingerprint({ scope: input.scope, sessionId: input.sessionId, projectId: input.projectId });
+type NativeSession = {
+  rpc: ReturnType<typeof connection>;
+  profile: string;
+  configHash: string;
+  accountHash: string;
+  sources: string[];
+  reusable: boolean;
+  binding: string;
+  owner: string;
+  threadId?: string;
+  state: string;
+  close(): Promise<void>;
+};
+
+/** Validate the effective profile on both cold and warm paths, never a cached authorization. */
+function verifyNativeConfig(config: any, profile: string, cwd: string, access: "read" | "write") {
+  if (
+    config?.web_search !== "disabled" ||
+    disabledFeatures.some((feature) => config?.features?.[feature] !== false) ||
+    Object.values(config?.mcp_servers ?? {}).some((entry: any) => entry?.enabled !== false)
+  )
+    throw new Error("Codex tool features could not be isolated");
+  const permissions = config?.permissions?.[profile];
+  const expected = filesystemPolicy(cwd, access);
+  const filesystem = { ...permissions?.filesystem };
+  if (filesystem.glob_scan_max_depth === null) delete filesystem.glob_scan_max_depth;
+  if (
+    permissions?.network?.enabled !== false ||
+    permissions.extends != null ||
+    Object.values(permissions.workspace_roots ?? {}).some(Boolean) ||
+    Object.keys(filesystem).length !== Object.keys(expected).length ||
+    Object.entries(expected).some(([root, mode]) => filesystem[root] !== mode)
+  )
+    throw new Error("Codex project policy could not be verified");
+}
+
+function nativeConfigSources(layers: any): { sources: string[]; reusable: boolean } {
+  if (!Array.isArray(layers) || layers.length > 100) return { sources: [], reusable: false };
+  const sources: string[] = [];
+  for (const layer of layers) {
+    const name = layer?.name;
+    if (name?.type === "sessionFlags") continue;
+    const file =
+      name?.type === "project" ? path.join(name.dotCodexFolder ?? "", "config.toml") : name?.file;
+    // Cloud/MDM layers cannot be verified through filesystem identity; keep those sessions cold.
+    if (typeof file !== "string" || !path.isAbsolute(file)) return { sources: [], reusable: false };
+    sources.push(file);
+  }
+  return { sources, reusable: true };
+}
+
 export class CodexAppServerEngine implements LocalAgentEngine {
   readonly id = "codex";
+  readonly supportsSessionReuse = true;
   private versionCache?: { identity: string; expires: number };
   private modelCache?: {
     key: string;
@@ -277,27 +376,43 @@ export class CodexAppServerEngine implements LocalAgentEngine {
   private modelPending?: { key: string; promise: Promise<Array<{ id: string; label: string }>> };
   private readonly connections = new Set<ReturnType<typeof connection>>();
   private closed = false;
+  private readonly pool: LocalAgentSessionPool<NativeSession>;
+  private readonly activeBindings = new Set<string>();
+  private readonly activeSessions = new Map<string, NativeSession>();
   constructor(
     private readonly options: {
       executable: string;
       env?: NodeJS.ProcessEnv;
       rpcTimeoutMs?: number;
       onTiming?: (sample: { phase: string; durationMs: number }) => void;
+      reusePolicy?: { idleTtlMs: number; maxIdleSessions: number };
     },
   ) {
     if (!path.isAbsolute(options.executable))
       throw new Error("Codex executable must be an absolute path");
+    this.pool = new LocalAgentSessionPool(
+      options.reusePolicy?.idleTtlMs,
+      options.reusePolicy?.maxIdleSessions,
+    );
   }
   private environment() {
     return codexLocalEnvironment(this.options.env ?? process.env);
   }
-  async release() {
-    // With reuse disabled, the Host has already cancelled active work and every turn closes.
+  async release(input: LocalAgentSessionSelector) {
+    const binding = nativeBinding(input);
+    const releasing = this.pool.release(binding);
+    await Promise.all(
+      [...this.activeSessions.values()]
+        .filter((entry) => entry.binding === binding)
+        .map((entry) => entry.close()),
+    );
+    await releasing;
   }
   async close() {
     this.closed = true;
     this.versionCache = undefined;
     this.modelCache = undefined;
+    await this.pool.close();
     await Promise.all([...this.connections].map((rpc) => rpc.close()));
   }
   private async timed<T>(phase: string, work: () => Promise<T>): Promise<T> {
@@ -337,6 +452,7 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     // CLI table overrides merge across config layers. Discover ambient entries before any thread
     // exists, then explicitly disable each one and recheck the second process before execution.
     for (let attempt = 0; attempt < 2; attempt++) {
+      if (this.closed) throw new Error("Local engine is closed");
       const rpc = connection(this.options.executable, args, cwd, env);
       this.connections.add(rpc);
       void rpc.whenClosed.then(() => this.connections.delete(rpc));
@@ -352,8 +468,8 @@ export class CodexAppServerEngine implements LocalAgentEngine {
           ),
         );
         rpc.send({ method: "initialized", params: {} });
-        const { config } = await this.timed("config", () =>
-          rpc.request("config/read", { cwd, includeLayers: false }, this.options.rpcTimeoutMs),
+        const { config, layers } = await this.timed("config", () =>
+          rpc.request("config/read", { cwd, includeLayers: true }, this.options.rpcTimeoutMs),
         );
         const ambient: Array<[string, string]> = [];
         for (const key of ["mcp_servers"]) {
@@ -377,28 +493,18 @@ export class CodexAppServerEngine implements LocalAgentEngine {
           rpc.close();
           continue;
         }
-        if (
-          config?.web_search !== "disabled" ||
-          disabledFeatures.some((feature) => config?.features?.[feature] !== false)
-        )
-          throw new Error("Codex tool features could not be isolated");
+        verifyNativeConfig(config, profile, cwd, access);
         const account = await this.timed("account", () =>
           rpc.request("account/read", { refreshToken: false }),
         );
         if (!account.account) throw new Error("Sign in to Codex locally");
-        const permissions = config?.permissions?.[profile];
-        const expected = filesystemPolicy(cwd, access);
-        const filesystem = { ...permissions?.filesystem };
-        if (filesystem.glob_scan_max_depth === null) delete filesystem.glob_scan_max_depth;
-        if (
-          permissions?.network?.enabled !== false ||
-          permissions.extends != null ||
-          Object.values(permissions.workspace_roots ?? {}).some(Boolean) ||
-          Object.keys(filesystem).length !== Object.keys(expected).length ||
-          Object.entries(expected).some(([root, mode]) => filesystem[root] !== mode)
-        )
-          throw new Error("Codex project policy could not be verified");
-        return { rpc, profile };
+        return {
+          rpc,
+          profile,
+          configHash: fingerprint(config),
+          accountHash: fingerprint(account.account),
+          ...nativeConfigSources(layers),
+        };
       } catch (error) {
         rpc.close();
         throw error;
@@ -414,14 +520,18 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     if (this.modelPending?.key === key)
       return (await this.modelPending.promise).map((value) => ({ ...value }));
     this.modelCache = undefined;
-    const promise = this.readModels();
+    // Every coalesced caller awaits validation, not just the caller that began discovery.
+    const promise = (async () => {
+      const values = await this.readModels();
+      const current = `${await codexExecutableIdentity(this.options.executable)}:${await codexLocalState(this.environment())}`;
+      if (this.closed || current !== key)
+        throw new Error("Local engine changed during model discovery");
+      this.modelCache = { key, expires: performance.now() + 30_000, values };
+      return values;
+    })();
     this.modelPending = { key, promise };
     try {
-      const values = await promise;
-      const current = `${await codexExecutableIdentity(this.options.executable)}:${await codexLocalState(this.environment())}`;
-      if (current !== key) throw new Error("Local engine changed during model discovery");
-      this.modelCache = { key, expires: performance.now() + 30_000, values };
-      return values.map((value) => ({ ...value }));
+      return (await promise).map((value) => ({ ...value }));
     } finally {
       if (this.modelPending?.promise === promise) this.modelPending = undefined;
     }
@@ -447,6 +557,73 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       rpc.close();
     }
   }
+  private async sessionState(session: Pick<NativeSession, "sources">, cwd: string) {
+    const [executable, state] = await Promise.all([
+      codexExecutableIdentity(this.options.executable),
+      codexLocalState(this.environment(), cwd, session.sources),
+    ]);
+    return `${executable}:${state}`;
+  }
+  private async acquire(
+    input: Parameters<LocalAgentEngine["start"]>[0],
+    key: string,
+    binding: string,
+  ) {
+    let session = input.reuse ? await this.pool.take(key) : undefined;
+    if (session) {
+      session.owner = input.request.runId;
+      try {
+        if (
+          session.rpc.isClosed ||
+          session.threadId !== input.sessionRef ||
+          session.state !== (await this.sessionState(session, input.cwd)) ||
+          !(await session.rpc.idleSafe())
+        )
+          throw new Error("Local session state changed");
+        await this.timed("warm_verify", async () => {
+          const [{ config }, account, current] = await Promise.all([
+            session!.rpc.request("config/read", { cwd: input.cwd, includeLayers: false }),
+            session!.rpc.request("account/read", { refreshToken: false }),
+            session!.rpc.request("thread/read", {
+              threadId: session!.threadId,
+              includeTurns: false,
+            }),
+          ]);
+          verifyNativeConfig(config, session!.profile, input.cwd, input.request.access);
+          if (
+            fingerprint(config) !== session!.configHash ||
+            !account.account ||
+            fingerprint(account.account) !== session!.accountHash ||
+            current.thread?.id !== session!.threadId ||
+            current.thread.cwd !== input.cwd ||
+            current.thread.model !== input.request.model ||
+            current.thread.status?.type !== "idle"
+          )
+            throw new Error("Local session policy changed");
+        });
+        return { session, warm: true };
+      } catch {
+        // Nothing has been submitted; discarding an unprovable idle session is a safe cold fallback.
+        await session.close();
+        session = undefined;
+      }
+    }
+    const opened = await this.open(input.cwd, input.request.access);
+    try {
+      const state = await this.sessionState(opened, input.cwd);
+      const native: NativeSession = {
+        ...opened,
+        binding,
+        owner: input.request.runId,
+        state,
+        close: () => opened.rpc.close(),
+      };
+      return { session: native, warm: false };
+    } catch (error) {
+      await opened.rpc.close();
+      throw error;
+    }
+  }
   async start(input: Parameters<LocalAgentEngine["start"]>[0]): Promise<LocalAgentExecution> {
     const began = performance.now();
     const recordTiming = (phase: string) => {
@@ -458,15 +635,37 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     };
     await input.emit({ type: "activity", text: localAgentProgress.connecting });
     recordTiming("first_feedback");
-    const { rpc, profile } = await this.open(input.cwd, input.request.access);
+    const binding = nativeBinding(input.request);
+    const key = fingerprint([
+      binding,
+      input.cwd,
+      input.request.model,
+      input.request.access,
+      input.request.instructions,
+    ]);
+    if (this.activeBindings.has(key)) throw new Error("Local session is busy");
+    this.activeBindings.add(key);
+    const generation = this.pool.generation(binding);
+    let acquired: Awaited<ReturnType<CodexAppServerEngine["acquire"]>>;
+    try {
+      acquired = await this.acquire(input, key, binding);
+    } catch (error) {
+      this.activeBindings.delete(key);
+      throw error;
+    }
+    const native = acquired.session;
+    this.activeSessions.set(key, native);
+    const { rpc, profile } = native;
+    recordTiming(acquired.warm ? "warm_ready" : "cold_ready");
     const activity = localAgentActivity(input.emit);
-    let threadId: string | undefined;
+    let threadId = native.threadId;
     let turnId: string | undefined;
     let settled = false;
     let stopping = false;
     let firstEvent = true;
     let firstText = true;
     let cleanup: Promise<unknown> = Promise.resolve();
+    let retain = input.reuse === true && native.reusable;
     let resolve!: (result: "completed" | "cancelled") => void;
     let reject!: (error: Error) => void;
     const completion = new Promise<"completed" | "cancelled">((ok, fail) => {
@@ -482,7 +681,36 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       if (settled) return;
       settled = true;
       input.signal?.removeEventListener("abort", abort);
-      cleanup = Promise.all([activity.close(), rpc.close()]);
+      cleanup = (async () => {
+        try {
+          await activity.close();
+          // A released or changed binding can never re-enter the idle cache after completion.
+          if (
+            status === "completed" &&
+            retain &&
+            !pending.size &&
+            !this.closed &&
+            !rpc.isClosed &&
+            generation === this.pool.generation(binding) &&
+            native.state === (await this.sessionState(native, input.cwd)) &&
+            (await rpc.idleSafe())
+          ) {
+            rpc.listen(
+              (message) => {
+                if (message.id !== undefined && message.method) void rpc.close();
+              },
+              () => undefined,
+            );
+            await this.pool.put(key, binding, generation, native);
+          } else await rpc.close();
+        } catch (error) {
+          await rpc.close();
+          throw error;
+        } finally {
+          this.activeBindings.delete(key);
+          if (this.activeSessions.get(key) === native) this.activeSessions.delete(key);
+        }
+      })();
       recordTiming("total");
       void cleanup.then(
         () => {
@@ -639,33 +867,57 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         approvalsReviewer: "user",
         developerInstructions: input.request.instructions,
       };
-      if (input.sessionRef) await activity.phase(localAgentProgress.restoring);
-      const started = await this.timed(input.sessionRef ? "resume" : "thread", () =>
-        rpc.request(input.sessionRef ? "thread/resume" : "thread/start", {
-          ...selection,
-          // Rakazo already persists visible events; hydrate only native metadata on resume.
-          ...(input.sessionRef
-            ? { threadId: input.sessionRef, excludeTurns: true }
-            : { ephemeral: false }),
-        }),
-      );
-      if (
-        started.activePermissionProfile?.id !== profile ||
-        started.cwd !== input.cwd ||
-        !Array.isArray(started.runtimeWorkspaceRoots) ||
-        started.runtimeWorkspaceRoots.length !== 1 ||
-        started.runtimeWorkspaceRoots[0] !== input.cwd ||
-        started.approvalPolicy !== "on-request" ||
-        started.approvalsReviewer !== "user" ||
-        typeof started.thread?.id !== "string"
-      )
-        throw new Error("Codex resolved policy mismatch");
-      threadId = started.thread.id;
+      if (!acquired.warm) {
+        if (input.sessionRef) await activity.phase(localAgentProgress.restoring);
+        const started = await this.timed(input.sessionRef ? "resume" : "thread", () =>
+          rpc.request(input.sessionRef ? "thread/resume" : "thread/start", {
+            ...selection,
+            // Rakazo already persists visible events; hydrate only native metadata on resume.
+            ...(input.sessionRef
+              ? { threadId: input.sessionRef, excludeTurns: true }
+              : { ephemeral: false }),
+          }),
+        );
+        if (
+          started.activePermissionProfile?.id !== profile ||
+          started.cwd !== input.cwd ||
+          !Array.isArray(started.runtimeWorkspaceRoots) ||
+          started.runtimeWorkspaceRoots.length !== 1 ||
+          started.runtimeWorkspaceRoots[0] !== input.cwd ||
+          started.approvalPolicy !== "on-request" ||
+          started.approvalsReviewer !== "user" ||
+          typeof started.thread?.id !== "string"
+        )
+          throw new Error("Codex resolved policy mismatch");
+        threadId = started.thread.id;
+        native.threadId = threadId;
+        if (native.state !== (await this.sessionState(native, input.cwd)))
+          throw new Error("Local state changed during thread setup");
+        const sources = started.instructionSources;
+        if (
+          !Array.isArray(sources) ||
+          sources.length > 100 ||
+          sources.some((file: unknown) => typeof file !== "string" || !path.isAbsolute(file))
+        )
+          retain = false;
+        else native.sources = [...new Set([...native.sources, ...sources])];
+        native.state = await this.sessionState(native, input.cwd);
+      }
       await input.session(threadId!);
       input.signal?.throwIfAborted();
+      if (
+        this.closed ||
+        generation !== this.pool.generation(binding) ||
+        rpc.isClosed ||
+        native.state !== (await this.sessionState(native, input.cwd))
+      )
+        throw new Error("Local session changed before submission");
       const turn = await this.timed("submit", () =>
         rpc.request("turn/start", {
           threadId,
+          model: input.request.model,
+          cwd: input.cwd,
+          runtimeWorkspaceRoots: [input.cwd],
           input: [{ type: "text", text: input.request.prompt }],
           clientUserMessageId: input.request.runId,
           permissions: profile,
@@ -708,9 +960,11 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         rpc.send({ id: request.rpcId, result });
         pending.delete(id);
       },
-      async cancel() {
+      cancel: async () => {
         if (settled) {
+          retain = false;
           await cleanup;
+          if (native.owner === input.request.runId) await native.close();
           return;
         }
         stopping = true;

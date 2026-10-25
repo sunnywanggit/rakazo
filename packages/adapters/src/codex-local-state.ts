@@ -7,7 +7,11 @@ async function identity(file: string) {
   try {
     const resolved = await realpath(file);
     const stat = await lstat(resolved, { bigint: true });
-    return [resolved, stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+    return (
+      stat.isDirectory()
+        ? [resolved, stat.dev, stat.ino, stat.mode, stat.uid, stat.gid]
+        : [resolved, stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs]
+    ).join(":");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return `${file}:absent`;
     throw new Error("Local engine state could not be verified");
@@ -20,11 +24,26 @@ export async function codexExecutableIdentity(executable: string) {
     .digest("hex");
 }
 
-export async function codexLocalState(env: NodeJS.ProcessEnv, cwd?: string) {
+export async function codexLocalState(
+  env: NodeJS.ProcessEnv,
+  cwd?: string,
+  sources: string[] = [],
+) {
   if (!env.HOME || !path.isAbsolute(env.HOME)) throw new Error("Local engine home is unavailable");
   const home = env.CODEX_HOME ?? path.join(env.HOME, ".codex");
   if (!path.isAbsolute(home)) throw new Error("Local engine home must be absolute");
-  const files = new Set([path.join(home, "auth.json"), path.join(home, "config.toml")]);
+  const files = new Set([
+    path.join(home, "auth.json"),
+    path.join(home, "config.toml"),
+    path.join(home, "AGENTS.md"),
+    path.join(home, "AGENTS.override.md"),
+    path.join(home, "requirements.toml"),
+    "/etc/codex/config.toml",
+    "/etc/codex/requirements.toml",
+    ...sources,
+  ]);
+  if ([...files].some((file) => !path.isAbsolute(file)))
+    throw new Error("Unverifiable local instruction source");
   if (cwd) {
     let root = cwd;
     // Native project configuration and instructions can come from ancestor directories.

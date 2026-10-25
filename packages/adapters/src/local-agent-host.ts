@@ -204,6 +204,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       (options.maxEventBytes ?? 4_000_000)
     ) {
       event = { type: "terminal", status: "failed", error: "Local agent event capacity exceeded" };
+      controllers.get(record.request.runId)?.abort();
       void executions
         .get(record.request.runId)
         ?.cancel()
@@ -262,6 +263,35 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       });
   }
 
+  // The old owner's stdin lease ends with the Host. Replay only unfinished cleanup intents;
+  // native work remains uncertain and is never submitted again. This also lets a caller recover
+  // after its release operation ID was lost together with an API/worker process.
+  for (const operation of released.values())
+    if (!operation.complete) {
+      if (!options.engine.release)
+        throw new Error("Pending session release requires lifecycle support");
+      for (const id of operation.runIds) {
+        const record = runs.get(id);
+        if (!record || bindingKey(record.request) !== bindingKey(operation.request))
+          throw new Error("Pending session release binding changed");
+        if (!cancellations.has(id) && cancellations.size >= (options.maxRuns ?? 128))
+          throw new Error("Pending session release exceeds cancellation capacity");
+        const cancellation = {
+          scope: operation.request.scope,
+          runId: id,
+          projectId: operation.request.projectId,
+        };
+        await privateWrite(path.join(options.root, `cancel-${digest(id)}.json`), cancellation);
+        cancellations.set(id, cancellation);
+      }
+      await options.engine.release(operation.request);
+      await privateWrite(
+        path.join(options.root, `released-${digest(operation.request.idempotencyKey)}.json`),
+        { ...operation, complete: true },
+      );
+      operation.complete = true;
+    }
+
   const launch = async (record: RunRecord) => {
     const id = record.request.runId;
     launching.add(id);
@@ -272,6 +302,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       await exclusive(() =>
         append(record, { type: "activity", text: localAgentProgress.connecting }),
       );
+      if (terminal(record) || controller.signal.aborted) return;
       const project = projects.get(record.request.projectId)!;
       // Re-resolve immediately before execution, rejecting a replaced project symlink.
       if ((await realpath(project.root)) !== project.root)
@@ -396,6 +427,8 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
             task = (async () => {
               await exclusive(async () => {
                 for (const id of operation.runIds) {
+                  if (!cancellations.has(id) && cancellations.size >= (options.maxRuns ?? 128))
+                    throw new HostError(429, "Cancellation capacity reached");
                   const cancellation = {
                     scope: input.scope,
                     runId: id,
@@ -668,6 +701,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     () => {
       for (const record of runs.values())
         if (!terminal(record) && record.expires < Date.now()) {
+          controllers.get(record.request.runId)?.abort();
           void executions
             .get(record.request.runId)
             ?.cancel()

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SecretStore } from "@rakazo/adapter-kit";
 import type { Actor } from "@rakazo/contracts";
 import { LocalAgentTargetSchema } from "@rakazo/contracts";
@@ -254,9 +254,14 @@ async function releaseLocalAgentSessions(
 ) {
   const sessions = await database.localAgentSession.findMany({
     where: { spaceId: actor.spaceId, userId: actor.userId, ...filter },
+    include: { runs: { select: { id: true } } },
   });
-  const operationId = randomUUID();
   for (const session of sessions) {
+    // A new admitted Run changes the cleanup epoch. Repeated cleanup of historical sessions
+    // reuses its receipt instead of consuming another bounded journal slot or closing new work.
+    const epoch = createHash("sha256")
+      .update(JSON.stringify(session.runs.map((run) => run.id).sort()))
+      .digest("hex");
     const client = await localAgentConnectionClient(deps, actor, session.connectionId, true);
     try {
       await client.release({
@@ -268,7 +273,7 @@ async function releaseLocalAgentSessions(
         },
         sessionId: session.id,
         projectId: session.projectId,
-        idempotencyKey: `${operationId}:${session.id}`,
+        idempotencyKey: `${session.id}:${epoch}`,
       });
     } finally {
       await client.close();
