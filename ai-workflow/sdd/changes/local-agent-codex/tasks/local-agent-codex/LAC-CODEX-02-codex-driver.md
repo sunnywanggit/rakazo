@@ -4,7 +4,7 @@
 - Change: local-agent-codex
 - Task: LAC-CODEX-02
 - Design: [local-agent-codex](../../design/local-agent-codex.md)
-- Status: pending
+- Status: completed
 - Depends on: LAC-CODEX-01
 - Design sections: 4B, 6, 7
 
@@ -14,4 +14,4 @@ Implement and verify the assigned design sections with deterministic offline tes
 
 ## Evidence
 
-Pending.
+Ten deterministic driver tests and nine host tests passed. Adapter and local-agent package type checks passed. Real installed CLI initialization, effective policy isolation, authentication status and model discovery passed without a model turn. Version pinning, one-shot bounded patch approvals, sandbox escape denial, structured answers and interruption were exercised. Ambient MCP entries are explicitly disabled because CLI table overrides merge; plugin, hook and app features are disabled and verified.
