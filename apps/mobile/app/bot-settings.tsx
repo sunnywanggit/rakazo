@@ -34,6 +34,7 @@ import { BotAvatar } from "../components/bot-avatar";
 import { BotContextCards } from "../components/bot-context-cards";
 import { ComputerModePicker } from "../components/computer-mode-picker";
 import { glassHeaderOptions } from "../components/glass-title";
+import { LocalAgentSettings } from "../components/local-agent-settings";
 import type { MenuPickerChoice } from "../components/menu-picker";
 import { MenuPicker, MenuPickerMenu } from "../components/menu-picker";
 import { NativeActionButton } from "../components/native-action-button";
@@ -83,6 +84,7 @@ export default function BotSettingsScreen() {
   const [color, setColor] = useState<string>(BOT_COLORS[0]);
   const [computerMode, setComputerMode] = useState<ComputerMode>("team");
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [localAgent, setLocalAgent] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(focus === "model" || pickedModel !== undefined);
   const [modelKey, setModelKey] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState("");
@@ -662,119 +664,127 @@ export default function BotSettingsScreen() {
                 scrollRef.current?.scrollTo({ y: modelY.current, animated: true });
             }}
           >
-            <SettingsGroup label={t("Model")}>
-              <MenuPicker
-                plain
-                choices={modelChoices}
-                label={t("Model")}
-                showLabel={false}
-                onChange={selectModel}
-                onPress={
-                  modelChoices.length > MODEL_SEARCH_THRESHOLD
-                    ? () =>
-                        router.push({
-                          pathname: "/bot-model",
-                          params: { botId, value: selectedModelKey },
-                        })
-                    : undefined
-                }
-                value={selectedModelKey}
-              />
-              {thinkingOptions.length ? (
-                <MenuPicker
-                  plain
-                  choices={thinkingChoices}
-                  label={t("Thinking")}
-                  onChange={setThinkingLevel}
-                  value={thinkingLevel}
-                />
-              ) : null}
-            </SettingsGroup>
-            {modelMetaError ? (
-              <Text style={{ color: tokens.mutedForeground, marginTop: 12, fontSize: 13 }}>
-                {modelMetaError}
-              </Text>
-            ) : null}
+            <LocalAgentSettings key={botId} botId={botId} onChanged={setLocalAgent} />
+            {!localAgent ? (
+              <>
+                <SettingsGroup label={t("Model")}>
+                  <MenuPicker
+                    plain
+                    choices={modelChoices}
+                    label={t("Model")}
+                    showLabel={false}
+                    onChange={selectModel}
+                    onPress={
+                      modelChoices.length > MODEL_SEARCH_THRESHOLD
+                        ? () =>
+                            router.push({
+                              pathname: "/bot-model",
+                              params: { botId, value: selectedModelKey },
+                            })
+                        : undefined
+                    }
+                    value={selectedModelKey}
+                  />
+                  {thinkingOptions.length ? (
+                    <MenuPicker
+                      plain
+                      choices={thinkingChoices}
+                      label={t("Thinking")}
+                      onChange={setThinkingLevel}
+                      value={thinkingLevel}
+                    />
+                  ) : null}
+                </SettingsGroup>
+                {modelMetaError ? (
+                  <Text style={{ color: tokens.mutedForeground, marginTop: 12, fontSize: 13 }}>
+                    {modelMetaError}
+                  </Text>
+                ) : null}
 
-            <SettingsGroup label={t("Computer")}>
-              <ComputerModePicker plain value={computerMode} onChange={setComputerMode} />
-            </SettingsGroup>
-            <SettingsGroup label={t("Voice")}>
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: tokens.foreground }]}>
-                  {t("Read replies aloud")}
-                </Text>
-                <NativeSwitch
-                  accessibilityLabel={t("Read replies aloud")}
-                  onValueChange={setAutoSpeak}
-                  value={autoSpeak}
-                />
-              </View>
-              {deviceVoiceEnabled ? (
-                voiceError ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t("Device voice")}
-                    accessibilityValue={{ text: voiceError }}
-                    onPress={() => void retryDeviceVoices()}
-                  >
-                    {voiceRow}
-                  </Pressable>
-                ) : (
-                  voiceRow
-                )
-              ) : null}
-            </SettingsGroup>
-            <SettingsGroup label={t("Permissions")}>
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: tokens.foreground }]}>
-                  {t("Allow cross-space bot communication")}
-                </Text>
-                <NativeSwitch
-                  accessibilityLabel={t("Allow cross-space bot communication")}
-                  value={crossSpaceCommunication}
-                  onValueChange={(value) => {
-                    if (!botId) return;
-                    setError(null);
-                    crossSpaceSave.update(value);
-                  }}
-                />
-              </View>
-              <View style={styles.row}>
-                <View style={{ gap: 4, flex: 1 }}>
-                  <Text
-                    style={[styles.rowLabel, { color: tokens.foreground, flex: 0, flexShrink: 1 }]}
-                  >
-                    {t("Manage the bots it creates")}
-                  </Text>
+                <SettingsGroup label={t("Computer")}>
+                  <ComputerModePicker plain value={computerMode} onChange={setComputerMode} />
+                </SettingsGroup>
+                <SettingsGroup label={t("Voice")}>
+                  <View style={styles.row}>
+                    <Text style={[styles.rowLabel, { color: tokens.foreground }]}>
+                      {t("Read replies aloud")}
+                    </Text>
+                    <NativeSwitch
+                      accessibilityLabel={t("Read replies aloud")}
+                      onValueChange={setAutoSpeak}
+                      value={autoSpeak}
+                    />
+                  </View>
+                  {deviceVoiceEnabled ? (
+                    voiceError ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t("Device voice")}
+                        accessibilityValue={{ text: voiceError }}
+                        onPress={() => void retryDeviceVoices()}
+                      >
+                        {voiceRow}
+                      </Pressable>
+                    ) : (
+                      voiceRow
+                    )
+                  ) : null}
+                </SettingsGroup>
+                <SettingsGroup label={t("Permissions")}>
+                  <View style={styles.row}>
+                    <Text style={[styles.rowLabel, { color: tokens.foreground }]}>
+                      {t("Allow cross-space bot communication")}
+                    </Text>
+                    <NativeSwitch
+                      accessibilityLabel={t("Allow cross-space bot communication")}
+                      value={crossSpaceCommunication}
+                      onValueChange={(value) => {
+                        if (!botId) return;
+                        setError(null);
+                        crossSpaceSave.update(value);
+                      }}
+                    />
+                  </View>
+                  <View style={styles.row}>
+                    <View style={{ gap: 4, flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.rowLabel,
+                          { color: tokens.foreground, flex: 0, flexShrink: 1 },
+                        ]}
+                      >
+                        {t("Manage the bots it creates")}
+                      </Text>
+                      <Text style={{ color: tokens.mutedForeground, fontSize: 12 }}>
+                        {t("Can edit and organise bots it creates")}
+                      </Text>
+                    </View>
+                    <NativeSwitch
+                      accessibilityLabel={t("Manage the bots it creates")}
+                      onValueChange={(value) => {
+                        if (!botId) return;
+                        setError(null);
+                        fleetSave.update(value);
+                      }}
+                      value={fleetManagement}
+                    />
+                  </View>
+                </SettingsGroup>
+                <SettingsGroup label={t("Description")}>
                   <Text style={{ color: tokens.mutedForeground, fontSize: 12 }}>
-                    {t("Can edit and organise bots it creates")}
+                    {t("How other bots see it")}
                   </Text>
-                </View>
-                <NativeSwitch
-                  accessibilityLabel={t("Manage the bots it creates")}
-                  onValueChange={(value) => {
-                    if (!botId) return;
-                    setError(null);
-                    fleetSave.update(value);
-                  }}
-                  value={fleetManagement}
-                />
-              </View>
-            </SettingsGroup>
-            <SettingsGroup label={t("Description")}>
-              <Text style={{ color: tokens.mutedForeground, fontSize: 12 }}>
-                {t("How other bots see it")}
-              </Text>
-              <GrowingTextInput
-                label={t("Description")}
-                value={description}
-                maxLength={BOT_DESCRIPTION_MAX_LENGTH}
-                onChangeText={setDescription}
-                placeholder={t("What this bot is for")}
-                inset={0}
-              />
-            </SettingsGroup>
+                  <GrowingTextInput
+                    label={t("Description")}
+                    value={description}
+                    maxLength={BOT_DESCRIPTION_MAX_LENGTH}
+                    onChangeText={setDescription}
+                    placeholder={t("What this bot is for")}
+                    inset={0}
+                  />
+                </SettingsGroup>
+              </>
+            ) : null}
             <View style={{ paddingHorizontal: 16, borderRadius: 12, backgroundColor: native.fill }}>
               <Pressable
                 accessibilityRole="button"

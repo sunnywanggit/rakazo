@@ -1,4 +1,5 @@
 import type { MenuAction } from "@expo/ui/community/menu";
+import { useLocalAgentExpired } from "@rakazo/chat-ui/local-agent";
 import { ChatMarkdown, markdownCodeBlocks, withBlockMentions } from "@rakazo/chat-ui/native";
 import type { AgentSkillCatalogEntry, MessageBlock, MessageReaction } from "@rakazo/contracts";
 import {
@@ -36,6 +37,7 @@ import {
   leaveThreadWindow,
   liveActivityLine,
   liveMessageComposing,
+  localAgentCardDecision,
   openThreadWindow,
   plainTextFromMarkdown,
   projectBotMentions,
@@ -1138,7 +1140,9 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
   }
 
   const botActions = [
-    ...(!readOnly && botId ? [{ text: t("Open computer"), onPress: openBotComputer }] : []),
+    ...(!readOnly && botId && !currentBot?.localAgent
+      ? [{ text: t("Open computer"), onPress: openBotComputer }]
+      : []),
     {
       text: t("Profile"),
       onPress: () =>
@@ -1954,14 +1958,25 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
       const targetBotId = botId;
       const targetGroupId = groupId;
       if (readOnly || (!targetBotId && !targetGroupId) || !message.runId) return;
-      await rpc("threads/answer", {
-        ...(targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! }),
-        runId: message.runId,
-        messageId: message.id,
-        answer,
-        ...(username ? { username } : {}),
-        ...(dismiss ? { dismiss: true as const } : {}),
-      });
+      const nativeAsk = message.blocks.find(
+        (block) => block.kind === "ask" && block.runtimeInteractionId,
+      );
+      if (nativeAsk?.kind === "ask") {
+        await rpc("localAgent/respond", {
+          interactionId: nativeAsk.runtimeInteractionId!,
+          messageId: message.id,
+          ...localAgentCardDecision(nativeAsk, answer),
+        });
+      } else {
+        await rpc("threads/answer", {
+          ...(targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! }),
+          runId: message.runId,
+          messageId: message.id,
+          answer,
+          ...(username ? { username } : {}),
+          ...(dismiss ? { dismiss: true as const } : {}),
+        });
+      }
       // The answer is saved once the server accepts it; a failed refresh only delays the card.
       if (isCurrentTarget(targetBotId, targetGroupId)) await refresh().catch(() => undefined);
     },
@@ -3086,6 +3101,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
             working={working}
             sending={sending}
             styles={styles}
+            nativeProject={currentBot?.localAgent}
             attachActions={attachActions}
             attachFrom={attachFrom}
             send={send}
@@ -4838,6 +4854,9 @@ function AskBlock({
   actionProps: MessageActionProps;
 }) {
   const tokens = useMobileTokens();
+  const expired = useLocalAgentExpired(ask.runtimeExpiresAt);
+  canAnswer = canAnswer && !expired;
+  const [nativeAnswers, setNativeAnswers] = useState<Record<string, string>>({});
   const { t } = useI18n();
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -4936,6 +4955,39 @@ function AskBlock({
             ? t(dismissed || ask.dismissed ? "Dismissed" : "Saved")
             : t("Answered: {answer}", { answer: ask.answer ?? t("Done") })}
         </Text>
+      ) : canAnswer && ask.runtimeQuestions ? (
+        <View style={{ gap: 12 }}>
+          {ask.runtimeQuestions.map((question) => (
+            <View key={question.id} style={{ gap: 8 }}>
+              <Text style={{ color: tokens.foreground }}>{question.question}</Text>
+              <TextInput
+                accessibilityLabel={question.question}
+                value={nativeAnswers[question.id] ?? ""}
+                onChangeText={(value) =>
+                  setNativeAnswers((previous) => ({ ...previous, [question.id]: value }))
+                }
+                editable={!submitting}
+                style={[
+                  askInputStyles.field,
+                  { color: tokens.foreground, borderColor: tokens.border },
+                ]}
+              />
+            </View>
+          ))}
+          <NativeActionButton
+            label={t("Send answer")}
+            busy={submitting}
+            disabled={ask.runtimeQuestions.some((question) => !nativeAnswers[question.id]?.trim())}
+            onPress={() => {
+              setSubmitting(true);
+              setError(null);
+              void onAnswer(JSON.stringify(nativeAnswers))
+                .then(() => setSaved(true))
+                .catch(() => setError(t("Could not send answer")))
+                .finally(() => setSubmitting(false));
+            }}
+          />
+        </View>
       ) : canAnswer && ownerOnly ? null : canAnswer && loginInput ? (
         <View style={askInputStyles.buttons}>
           <NativeActionButton

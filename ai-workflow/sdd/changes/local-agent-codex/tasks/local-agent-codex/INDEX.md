@@ -10,7 +10,7 @@
 | LAC-CODEX-01 | [Host protocol and service](LAC-CODEX-01-host-protocol.md) | completed | none |
 | LAC-CODEX-02 | [Codex protocol driver](LAC-CODEX-02-codex-driver.md) | completed | LAC-CODEX-01 |
 | LAC-CODEX-03 | [Persistence and worker integration](LAC-CODEX-03-server-integration.md) | completed | LAC-CODEX-02 |
-| LAC-CODEX-04 | [Shared client controls](LAC-CODEX-04-client-controls.md) | pending | LAC-CODEX-03 |
+| LAC-CODEX-04 | [Shared client controls](LAC-CODEX-04-client-controls.md) | completed | LAC-CODEX-03 |
 | LAC-CODEX-05 | [Recovery acceptance and operations](LAC-CODEX-05-acceptance-recovery.md) | pending | LAC-CODEX-04 |
 
 Execution topology: 01 -> 02 -> 03 -> 04 -> 05. Sequential execution as requested; no parallel agent queue. No cross-Change dependency.

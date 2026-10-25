@@ -39,6 +39,7 @@ export * from "./identity-display.js";
 export { identitySource } from "./identity-source.js";
 export * from "./inbound-routine.js";
 export * from "./instruction-diff.js";
+export * from "./local-agent-decision.js";
 export * from "./markdown-plain.js";
 export * from "./mcp.js";
 export * from "./message-pages.js";

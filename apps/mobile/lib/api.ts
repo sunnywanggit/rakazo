@@ -1015,6 +1015,7 @@ export type MobileBot = Pick<
   | "archivedAt"
   | "unread"
   | "updatedAt"
+  | "localAgent"
   | "computerMode"
   | "modelProvider"
   | "modelId"

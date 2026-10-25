@@ -39,6 +39,7 @@ const scope = {
   React,
   useState,
   useRef,
+  useLocalAgentExpired: () => false,
   useMobileTokens: () => ({ success: "success", mutedForeground: "muted" }),
   useI18n: () => ({ t: (text: string) => text }),
   isSecretAskBlock: (block: { input?: string }) => block.input === "secret",
@@ -278,7 +279,7 @@ it("closes the current sheet and keeps the card saved when refresh fails", async
     }).outputText,
   )(...Object.values(handlerScope));
   await render(loginAsk, () =>
-    answerMessage({ id: "message-1", runId: "run-1" }, "example-password"),
+    answerMessage({ id: "message-1", runId: "run-1", blocks: [] }, "example-password"),
   );
   await openSheet();
   await act(async () => sheet.onSave("example-password", "example-user"));

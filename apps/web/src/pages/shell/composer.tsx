@@ -59,6 +59,7 @@ export const Composer = memo(function Composer({
   onSend,
   onStop,
   phoneCallsEnabled,
+  nativeProject = false,
   dictationTranscribe,
   replyTarget,
   replyQuote,
@@ -89,6 +90,7 @@ export const Composer = memo(function Composer({
   onSend: (text: string, mentions: ComposerMention[], clientNonce: string) => Promise<boolean>;
   onStop: () => Promise<void>;
   phoneCallsEnabled?: boolean;
+  nativeProject?: boolean;
   /** Hold-to-talk falls back to the voice provider's transcription; undefined while unknown. */
   dictationTranscribe?: boolean;
   artifactTarget: ArtifactTarget;
@@ -179,7 +181,7 @@ export const Composer = memo(function Composer({
 
   function pickAttachments(files: FileList | null) {
     if (!files?.length) return;
-    if (onAttachmentPick(files)) markEdited();
+    if (!nativeProject && onAttachmentPick(files)) markEdited();
   }
 
   function updateDraft(value: string) {
@@ -608,7 +610,8 @@ export const Composer = memo(function Composer({
           variant="ghost"
           size="icon"
           aria-label={t`Attach file`}
-          disabled={disabled}
+          title={nativeProject ? t`Use files in the selected project` : undefined}
+          disabled={disabled || nativeProject}
           onClick={() => fileInputRef.current?.click()}
           className={`col-start-1 size-8 shrink-0 rounded-full border border-border bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
             expanded ? "row-start-2" : ""

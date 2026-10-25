@@ -107,6 +107,7 @@ export const BotSchema = z.object({
   preview: z.string(),
   status: z.string(),
   runErrorId: Id.nullable().default(null),
+  localAgent: z.boolean().optional(),
   computerMode: ComputerModeSchema,
   updatedAt: z.string(),
   createdAt: z.string(),

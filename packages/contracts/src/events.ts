@@ -123,6 +123,7 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     credential: botSecretDestinationSchema({ allowPrivateHttpOrigin: true }).optional(),
     /** On a fetch approval, the site an "always" answer allows. */
     site: z.string().optional(),
+    runtimeExpiresAt: z.string().datetime().optional(),
     runtimeInteractionId: z.string().optional(),
     runtimeQuestions: z
       .array(

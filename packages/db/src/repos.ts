@@ -84,6 +84,7 @@ function mapBot(
     updatedAt: Date;
     thread: { id: string; unread: boolean } | null;
     computer: { scope: string } | null;
+    localAgentTarget?: { botId: string } | null;
     voiceId?: string | null;
     autoSpeak?: boolean;
     modelProvider?: string | null;
@@ -127,6 +128,7 @@ function mapBot(
     preview,
     status,
     runErrorId,
+    localAgent: Boolean(bot.localAgentTarget),
     computerMode: bot.computer ? parseComputerMode(bot.computer.scope) : "team",
     createdAt: bot.createdAt.toISOString(),
     updatedAt: updatedAt.toISOString(),
@@ -367,6 +369,7 @@ export function createRepos(
               thread: true,
               runs: activeRunSelection,
               computer: { select: { scope: true } },
+              localAgentTarget: { select: { botId: true } },
             },
             orderBy: [{ pinned: "desc" }, { position: "asc" }, { createdAt: "asc" }],
           }),

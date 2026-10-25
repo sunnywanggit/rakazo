@@ -75,10 +75,11 @@ export async function commitLocalAgentEvent(
       });
       const block: MessageBlock = {
         kind: "ask",
-        text: interaction.summary,
+        text: `Local project: ${interaction.summary}`,
         detail: interaction.detail,
         status: "pending",
         runtimeInteractionId: interaction.id,
+        runtimeExpiresAt: interaction.expiresAt,
         runtimeQuestions: interaction.questions,
         ...(interaction.kind === "approval"
           ? {

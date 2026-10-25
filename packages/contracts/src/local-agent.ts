@@ -107,3 +107,6 @@ export const LocalAgentSettingsSchema = z.strictObject({
   target: LocalAgentTargetSchema.nullable(),
   pairing: z.strictObject({ spaceId: id, userId: id, botId: id }),
 });
+
+export type LocalAgentTarget = z.infer<typeof LocalAgentTargetSchema>;
+export type LocalAgentSettings = z.infer<typeof LocalAgentSettingsSchema>;

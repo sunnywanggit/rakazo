@@ -37,6 +37,7 @@ import {
   isRunTerminalEvent,
   isRunWorking,
   jumpTargetId,
+  localAgentCardDecision,
   reorderBotTo,
   resolveComposerSendPlan,
   runThreadSubscription,
@@ -2188,14 +2189,25 @@ function SpaceShell() {
       const botId = activeBotId.current;
       const groupId = activeGroupId.current;
       if (!botId && !groupId) return;
-      await rpc.threads.answer({
-        ...(groupId ? { groupId } : { botId: botId! }),
-        runId: message.runId ?? "",
-        messageId: message.id,
-        answer: text,
-        ...(username ? { username } : {}),
-        ...(dismiss ? { dismiss: true as const } : {}),
-      });
+      const nativeAsk = message.blocks.find(
+        (block) => block.kind === "ask" && block.runtimeInteractionId,
+      );
+      if (nativeAsk?.kind === "ask") {
+        await rpc.localAgent.respond({
+          interactionId: nativeAsk.runtimeInteractionId!,
+          messageId: message.id,
+          ...localAgentCardDecision(nativeAsk, text),
+        });
+      } else {
+        await rpc.threads.answer({
+          ...(groupId ? { groupId } : { botId: botId! }),
+          runId: message.runId ?? "",
+          messageId: message.id,
+          answer: text,
+          ...(username ? { username } : {}),
+          ...(dismiss ? { dismiss: true as const } : {}),
+        });
+      }
       // The answer is saved; live events can reconcile a failed refresh.
       try {
         if (groupId && activeGroupId.current === groupId) {
@@ -3433,7 +3445,7 @@ function SpaceShell() {
               </span>
             </button>
             <div className="flex items-center justify-self-end gap-2">
-              {bootstrapMe?.phoneCallsEnabled && !inGroup && active ? (
+              {bootstrapMe?.phoneCallsEnabled && !inGroup && active && !active.localAgent ? (
                 <IconTooltip label={call?.botId === active.id ? t`Open call` : t`Call`}>
                   <button
                     type="button"
@@ -3453,7 +3465,7 @@ function SpaceShell() {
                   </button>
                 </IconTooltip>
               ) : null}
-              {!inGroup && active ? (
+              {!inGroup && active && !active.localAgent ? (
                 <IconTooltip label={t`Agent computer`}>
                   <button
                     type="button"
@@ -3503,7 +3515,7 @@ function SpaceShell() {
               workingBots={workingBots}
               userBubble={userBubble}
               onCallBack={
-                bootstrapMe?.phoneCallsEnabled && !inGroup && active
+                bootstrapMe?.phoneCallsEnabled && !inGroup && active && !active.localAgent
                   ? () => callBot(active)
                   : undefined
               }
@@ -3586,7 +3598,8 @@ function SpaceShell() {
             onRemoveAttachment={removeAttachment}
             onSend={sendMessage}
             onStop={stopRun}
-            phoneCallsEnabled={bootstrapMe?.phoneCallsEnabled === true}
+            nativeProject={active?.localAgent}
+            phoneCallsEnabled={bootstrapMe?.phoneCallsEnabled === true && !active?.localAgent}
             dictationTranscribe={voiceStatus ? Boolean(voiceStatus.transcribe) : undefined}
             artifactTarget={transcriptArtifactTarget}
             replyTarget={activeReplyTarget}
@@ -3648,7 +3661,7 @@ function SpaceShell() {
                       }}
                     />
                   ) : null}
-                  {active ? (
+                  {active && !active.localAgent ? (
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -3674,7 +3687,7 @@ function SpaceShell() {
                 </div>
               </div>
             ) : null}
-            {panel === "computer" && active ? (
+            {panel === "computer" && active && !active.localAgent ? (
               <ComputerPanel
                 bot={active}
                 computer={computer}
@@ -3749,6 +3762,9 @@ function SpaceShell() {
                 bot={active}
                 focusModel={modelFocusRequest}
                 onOpenConnections={() => openSettings("models")}
+                onExecutionChange={() => {
+                  void refreshBots();
+                }}
                 memoryProviderConfigured={memoryProviderConfig != null}
                 onSkillsChange={setAgentSkills}
                 onSave={async ({ computerMode, ...patch }) => {

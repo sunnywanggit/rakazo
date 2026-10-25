@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { useLocalAgentExpired } from "@rakazo/chat-ui/local-agent";
 import { ChatMarkdown } from "@rakazo/chat-ui/web";
 import type { ThreadMessage } from "@rakazo/contracts";
 import { BOT_INSTRUCTIONS_MAX_LENGTH, commandVariableName } from "@rakazo/contracts";
@@ -65,6 +66,9 @@ export function AskCard({
   onDismiss: () => Promise<void>;
 }) {
   const { t } = useLingui();
+  const expired = useLocalAgentExpired(block.runtimeExpiresAt);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  canAnswer = canAnswer && !expired;
   const [editing, setEditing] = useState(false);
   const [answer, setAnswer] = useState(block.instructionUpdate?.after ?? "");
   const [dismissed, setDismissed] = useState(false);
@@ -248,6 +252,56 @@ export function AskCard({
         <div className="mt-3.5 text-[13.5px] font-medium text-muted-foreground">
           <Trans>No longer active</Trans>
         </div>
+      ) : block.runtimeQuestions ? (
+        <form
+          className="mt-3 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitAnswer(JSON.stringify(answers));
+          }}
+        >
+          {block.runtimeQuestions.map((question) => (
+            <label
+              key={question.id}
+              htmlFor={`native-${block.runtimeInteractionId}-${question.id}`}
+              className="block text-sm"
+            >
+              {question.question}
+              {question.options?.length ? (
+                <div className="flex flex-wrap gap-2 my-2">
+                  {question.options.map((option) => (
+                    <Button
+                      key={option}
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setAnswers((previous) => ({ ...previous, [question.id]: option }))
+                      }
+                    >
+                      {option}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+              <Input
+                id={`native-${block.runtimeInteractionId}-${question.id}`}
+                aria-label={question.question}
+                value={answers[question.id] ?? ""}
+                onChange={(event) =>
+                  setAnswers((previous) => ({ ...previous, [question.id]: event.target.value }))
+                }
+              />
+            </label>
+          ))}
+          <Button
+            type="submit"
+            disabled={
+              submitting || block.runtimeQuestions.some((question) => !answers[question.id]?.trim())
+            }
+          >
+            <Trans>Send answer</Trans>
+          </Button>
+        </form>
       ) : ownerOnly ? null : askActions?.length ? (
         <div className={approvalActions ? "mt-3.5 flex flex-wrap gap-2" : "mt-3.5 space-y-1.5"}>
           {displayActions?.map((action) => (

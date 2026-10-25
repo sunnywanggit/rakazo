@@ -314,3 +314,47 @@ it("keeps a connector code card open to others in the chat, without Dismiss", as
   expect(button("Save")).toBeDefined();
   expect(button("Dismiss")).toBeUndefined();
 });
+
+it("submits every structured local question through the explicit card", async () => {
+  const submit = vi.fn(async () => undefined);
+  await render(
+    {
+      kind: "ask",
+      text: "Choose files",
+      status: "pending",
+      runtimeInteractionId: "native",
+      runtimeQuestions: [
+        { id: "file", question: "Which file?", options: ["one"] },
+        { id: "mode", question: "Which mode?" },
+      ],
+    },
+    undefined,
+    submit,
+  );
+  expect(button("Send answer")?.disabled).toBe(true);
+  await act(async () => button("one")!.click());
+  await type("Which mode?", "inspect");
+  await act(async () => button("Send answer")!.click());
+  expect(submit).toHaveBeenCalledWith(JSON.stringify({ file: "one", mode: "inspect" }), undefined);
+});
+
+it("disables an expired local approval", async () => {
+  const submit = vi.fn(async () => undefined);
+  await render(
+    {
+      kind: "ask",
+      text: "Apply patch",
+      status: "pending",
+      runtimeInteractionId: "expired",
+      runtimeExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+      actions: [
+        { id: "allow", label: "Allow once" },
+        { id: "deny", label: "Deny" },
+      ],
+    },
+    undefined,
+    submit,
+  );
+  expect(container.textContent).toContain("No longer active");
+  expect(submit).not.toHaveBeenCalled();
+});
