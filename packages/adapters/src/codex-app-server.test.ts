@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { LocalAgentEvent } from "@rakazo/contracts";
@@ -32,6 +32,59 @@ async function fixture(prompt = "inspect", access: "read" | "write" = "read") {
 }
 
 describe("Codex native driver", () => {
+  it("coalesces model discovery and invalidates its cache when local authentication changes", async () => {
+    const f = await codexFixture();
+    cleanup.push(f.dispose);
+    await Promise.all([f.engine.models(), f.engine.models(), f.engine.models()]);
+    const wire = async () =>
+      (await readFile(path.join(f.base, "wire.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+    expect((await wire()).filter((item) => item.method === "model/list")).toHaveLength(1);
+    await f.engine.models();
+    expect((await wire()).filter((item) => item.method === "model/list")).toHaveLength(1);
+    await mkdir(path.join(f.base, ".codex"));
+    await writeFile(path.join(f.base, ".codex/auth.json"), "fake credential generation");
+    await f.engine.models();
+    expect((await wire()).filter((item) => item.method === "model/list")).toHaveLength(2);
+    expect(
+      (await readFile(path.join(f.base, "version-probes"), "utf8")).trim().split("\n"),
+    ).toHaveLength(1);
+  });
+  it("expires discovery caches using a monotonic clock and emits only bounded timing metadata", async () => {
+    const f = await codexFixture();
+    cleanup.push(f.dispose);
+    let now = 1000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const timings: Array<{ phase: string; durationMs: number }> = [];
+    const engine = new CodexAppServerEngine({
+      executable: f.executable,
+      env: { HOME: f.base, PATH: process.env.PATH },
+      onTiming: (sample) => timings.push(sample),
+    });
+    cleanup.push(() => engine.close());
+    try {
+      await engine.models();
+      now += 31_000;
+      await engine.models();
+      now += 301_000;
+      await engine.models();
+      expect(
+        (await readFile(path.join(f.base, "version-probes"), "utf8")).trim().split("\n"),
+      ).toHaveLength(2);
+      expect(
+        timings.every(
+          (sample) =>
+            Object.keys(sample).sort().join() === "durationMs,phase" &&
+            Number.isFinite(sample.durationMs),
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(timings)).not.toContain(f.base);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("streams public progress and survives native rate-limit retries without resubmitting input", async () => {
     const f = await fixture("progress");
     expect(await f.execution.completion).toBe("completed");

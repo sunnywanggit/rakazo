@@ -9,6 +9,13 @@ const configSchema = z.strictObject({
   port: z.number().int().min(1024).max(65535),
   allowedHosts: z.array(z.string().min(1)).min(1),
   engine: z.strictObject({ kind: z.literal("codex"), executable: z.string().min(1) }),
+  lifecycle: z
+    .strictObject({
+      enabled: z.boolean().default(false),
+      idleTtlMs: z.number().int().min(1_000).max(300_000).default(300_000),
+      maxIdleSessions: z.number().int().min(1).max(2).default(2),
+    })
+    .default({ enabled: false, idleTtlMs: 300_000, maxIdleSessions: 2 }),
   projects: z
     .array(
       z.strictObject({
@@ -36,8 +43,16 @@ async function main() {
   if (process.argv.length !== 4 || process.argv[2] !== "--config")
     throw new Error("Expected --config with a private configuration file");
   const config = configSchema.parse(await readLocalAgentPrivateFile(process.argv[3]!));
-  const engine = new CodexAppServerEngine({ executable: config.engine.executable });
-  const host = await startLocalAgentHost({ ...config, engine });
+  const engine = new CodexAppServerEngine({
+    executable: config.engine.executable,
+    onTiming: (sample) =>
+      process.stdout.write(`${JSON.stringify({ event: "local_agent.phase", ...sample })}\n`),
+  });
+  const host = await startLocalAgentHost({
+    ...config,
+    engine,
+    sessionReuse: config.lifecycle.enabled,
+  });
   let closing = false;
   const close = async () => {
     if (closing) return;

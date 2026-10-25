@@ -1,10 +1,49 @@
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { LocalAgentClient, localAgentAllowedOrigins } from "./local-agent-client.js";
 import { codexFixture } from "./local-agent-fixture.js";
 import { startLocalAgentHost } from "./local-agent-host.js";
 import { LocalAgentRuntime } from "./local-agent-runtime.js";
+
+it("falls back to cold requests for a legacy host, without hiding capability authentication errors", async () => {
+  const seen: string[] = [];
+  let denied = false;
+  const server = createServer((request, response) => {
+    if (request.url === "/v1/lifecycle") {
+      response.writeHead(denied ? 401 : 404).end();
+      return;
+    }
+    seen.push(String(request.headers["rakazo-session-reuse"] ?? ""));
+    request.resume();
+    response.setHeader("content-type", "application/json");
+    response.end(
+      JSON.stringify({ runId: "run", status: "completed", sequence: 0, interaction: null }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+  const endpoint = `http://127.0.0.1:${address.port}`;
+  const client = new LocalAgentClient({
+    endpoint,
+    token: "a".repeat(64),
+    allowedOrigins: [endpoint],
+  });
+  cleanup.push(() => client.close());
+  const f = await codexFixture();
+  cleanup.push(f.dispose);
+  expect((await client.start(f.request)).status).toBe("completed");
+  expect(seen).toEqual([""]);
+  denied = true;
+  await expect(client.start(f.request)).rejects.toMatchObject({ status: 401 });
+  expect(seen).toHaveLength(1);
+});
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {

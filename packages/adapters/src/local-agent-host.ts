@@ -5,11 +5,17 @@ import type { IncomingMessage } from "node:http";
 import { createServer } from "node:http";
 import path from "node:path";
 import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit";
-import type { LocalAgentDecision, LocalAgentEnvelope, LocalAgentStart } from "@rakazo/contracts";
+import type {
+  LocalAgentDecision,
+  LocalAgentEnvelope,
+  LocalAgentRelease,
+  LocalAgentStart,
+} from "@rakazo/contracts";
 import {
   LocalAgentCancelSchema,
   LocalAgentDecisionSchema,
   LocalAgentEnvelopeSchema,
+  LocalAgentReleaseSchema,
   LocalAgentStartSchema,
 } from "@rakazo/contracts";
 import { localAgentProgress } from "@rakazo/core";
@@ -26,6 +32,7 @@ export interface LocalAgentHostOptions {
   leaseMs?: number;
   maxRuns?: number;
   maxEventBytes?: number;
+  sessionReuse?: boolean;
 }
 
 type RunRecord = {
@@ -42,7 +49,9 @@ type RunRecord = {
   events: LocalAgentEnvelope[];
   decisions: Record<string, LocalAgentDecision>;
   expires: number;
+  reuse?: boolean;
 };
+type ReleaseRecord = { request: LocalAgentRelease; runIds: string[]; complete: boolean };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const terminal = (record: RunRecord) =>
   ["completed", "failed", "cancelled", "uncertain"].includes(record.status);
@@ -141,6 +150,20 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     { scope: LocalAgentStart["scope"]; runId: string; projectId: string }
   >();
   const launches = new Set<Promise<void>>();
+  const launchTasks = new Map<string, Promise<void>>();
+  const released = new Map<string, ReleaseRecord>();
+  const releaseTasks = new Map<string, Promise<void>>();
+  const bindingKey = (request: Pick<LocalAgentStart, "scope" | "sessionId" | "projectId">) =>
+    digest({ scope: request.scope, sessionId: request.sessionId, projectId: request.projectId });
+  const isReleasing = (key: string) =>
+    [...released.values()].some((value) => !value.complete && bindingKey(value.request) === key);
+  const lifecycle = () => ({
+    sessionRelease: typeof options.engine.release === "function",
+    sessionReuse:
+      options.sessionReuse === true &&
+      options.engine.supportsSessionReuse === true &&
+      typeof options.engine.release === "function",
+  });
   let closed = false;
   const bus = new EventEmitter();
   bus.setMaxListeners(100);
@@ -202,6 +225,22 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
   };
   // A process cannot survive a host restart with a trustworthy pending RPC request.
   for (const name of await readdir(options.root)) {
+    if (/^released-[a-f0-9]{64}\.json$/.test(name)) {
+      const value = (await readLocalAgentPrivateFile(
+        path.join(options.root, name),
+      )) as ReleaseRecord;
+      value.request = LocalAgentReleaseSchema.parse(value.request);
+      if (
+        !Array.isArray(value.runIds) ||
+        value.runIds.some((id) => typeof id !== "string" || !/^[a-zA-Z0-9:_-]{1,160}$/.test(id)) ||
+        typeof value.complete !== "boolean"
+      )
+        throw new Error("Invalid session release journal");
+      if (name !== `released-${digest(value.request.idempotencyKey)}.json`)
+        throw new Error("Invalid session release journal");
+      released.set(value.request.idempotencyKey, value);
+      continue;
+    }
     if (/^cancel-[a-f0-9]{64}\.json$/.test(name)) {
       const cancellation = LocalAgentCancelSchema.parse(
         await readLocalAgentPrivateFile(path.join(options.root, name)),
@@ -237,6 +276,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       // Re-resolve immediately before execution, rejecting a replaced project symlink.
       if ((await realpath(project.root)) !== project.root)
         throw new Error("Project directory changed");
+      if (cancellations.has(id)) throw new Error("Local run was released");
       const sessionFile = path.join(options.root, `session-${sessionKey(record.request)}.json`);
       let sessionRef: string | undefined;
       try {
@@ -249,6 +289,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
         request: record.request,
         cwd: project.root,
         sessionRef,
+        reuse: record.reuse === true && lifecycle().sessionReuse,
         signal: controller.signal,
         session: (reference) => privateWrite(sessionFile, { reference }),
         emit: (event) => exclusive(() => append(record, event)),
@@ -265,7 +306,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       await exclusive(() =>
         append(record, {
           type: "terminal",
-          status: "failed",
+          status: controller.signal.aborted ? "cancelled" : "failed",
           error: "Local agent execution failed; check local engine configuration",
         }),
       );
@@ -304,6 +345,91 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     };
     try {
       const url = new URL(request.url ?? "/", "http://local.invalid");
+      if (request.method === "GET" && url.pathname === "/v1/lifecycle") {
+        json(lifecycle());
+        return;
+      }
+      if (request.method === "POST" && url.pathname === "/v1/sessions/release") {
+        const parsed = LocalAgentReleaseSchema.safeParse(await body(request));
+        if (!parsed.success || !authorized(parsed.data))
+          throw new HostError(403, "Session release is not authorized");
+        if (!options.engine.release) throw new HostError(404, "Session release is unavailable");
+        const input = parsed.data;
+        const key = bindingKey(input);
+        const operation = await exclusive(async () => {
+          if (
+            [...runs.values()].some(
+              (record) =>
+                record.request.sessionId === input.sessionId && bindingKey(record.request) !== key,
+            )
+          )
+            throw new HostError(403, "Session release binding changed");
+          const previous = released.get(input.idempotencyKey);
+          if (previous) {
+            if (bindingKey(previous.request) !== key)
+              throw new HostError(409, "Session release operation changed");
+            return previous;
+          }
+          if (isReleasing(key)) throw new HostError(423, "Local session release is pending");
+          if (released.size >= (options.maxRuns ?? 128))
+            throw new HostError(429, "Session release capacity reached");
+          const runIds = [...runs.values()]
+            .filter((record) => !terminal(record) && bindingKey(record.request) === key)
+            .map((record) => record.request.runId);
+          if (
+            cancellations.size + runIds.filter((id) => !cancellations.has(id)).length >
+            (options.maxRuns ?? 128)
+          )
+            throw new HostError(429, "Cancellation capacity reached");
+          const next: ReleaseRecord = { request: input, runIds, complete: false };
+          // The immutable receipt fences old runs without disabling later explicit user turns.
+          await privateWrite(
+            path.join(options.root, `released-${digest(input.idempotencyKey)}.json`),
+            next,
+          );
+          released.set(input.idempotencyKey, next);
+          return next;
+        });
+        if (!operation.complete) {
+          let task = releaseTasks.get(input.idempotencyKey);
+          if (!task) {
+            task = (async () => {
+              await exclusive(async () => {
+                for (const id of operation.runIds) {
+                  const cancellation = {
+                    scope: input.scope,
+                    runId: id,
+                    projectId: input.projectId,
+                  };
+                  await privateWrite(
+                    path.join(options.root, `cancel-${digest(id)}.json`),
+                    cancellation,
+                  );
+                  cancellations.set(id, cancellation);
+                  controllers.get(id)?.abort();
+                }
+              });
+              await Promise.all(operation.runIds.map((id) => executions.get(id)?.cancel()));
+              await Promise.all(operation.runIds.map((id) => launchTasks.get(id)));
+              await options.engine.release!(input);
+              await exclusive(async () => {
+                await privateWrite(
+                  path.join(options.root, `released-${digest(input.idempotencyKey)}.json`),
+                  { ...operation, complete: true },
+                );
+                operation.complete = true;
+              });
+            })();
+            releaseTasks.set(input.idempotencyKey, task);
+            void task
+              .finally(() => releaseTasks.delete(input.idempotencyKey))
+              .catch(() => undefined);
+          }
+          await task;
+        }
+        json({ released: true });
+        return;
+      }
       if (request.method === "POST" && url.pathname === "/v1/cancellations") {
         const parsed = LocalAgentCancelSchema.safeParse(await body(request));
         if (!parsed.success || !authorized(parsed.data))
@@ -376,6 +502,8 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
             await save(previous);
             return previous;
           }
+          if (isReleasing(bindingKey(input)))
+            throw new HostError(423, "Local session release is pending");
           if (runs.size >= (options.maxRuns ?? 128))
             throw new HostError(429, "Local run capacity reached");
           if (
@@ -395,6 +523,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
             events: [],
             decisions: {},
             expires: Date.now() + (options.leaseMs ?? 90_000),
+            reuse: request.headers["rakazo-session-reuse"] === "1" && lifecycle().sessionReuse,
           };
           const cancelled = cancellations.get(input.runId);
           if (cancelled) {
@@ -414,7 +543,13 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
         if (record.status === "starting" && !launching.has(input.runId)) {
           const task = launch(record);
           launches.add(task);
-          void task.finally(() => launches.delete(task)).catch(() => undefined);
+          launchTasks.set(input.runId, task);
+          void task
+            .finally(() => {
+              launches.delete(task);
+              launchTasks.delete(input.runId);
+            })
+            .catch(() => undefined);
         }
         json(statusOf(record));
         return;
@@ -569,6 +704,8 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       });
       await Promise.allSettled([...executions.values()].map((execution) => execution.cancel()));
       await Promise.allSettled([...launches]);
+      await Promise.allSettled([...releaseTasks.values()]);
+      await options.engine.close?.();
       await queue;
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

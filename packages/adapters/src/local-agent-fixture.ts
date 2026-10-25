@@ -9,7 +9,7 @@ const fakeCli = `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
-if (process.argv.includes('--version')) { process.stdout.write('codex-cli 0.163.0\\n'); process.exit(0); }
+if (process.argv.includes('--version')) { fs.appendFileSync(path.join(process.env.HOME,'version-probes'),'1\\n'); process.stdout.write('codex-cli 0.163.0\\n'); process.exit(0); }
 const args = process.argv.slice(2);
 const setting = args.find(v => v.startsWith('permissions.') && v.includes('.filesystem='));
 const profile = setting.split('.')[1];
@@ -90,6 +90,7 @@ export async function codexFixture() {
     engine,
     request,
     async dispose() {
+      await engine.close();
       await rm(base, { recursive: true, force: true });
     },
   };

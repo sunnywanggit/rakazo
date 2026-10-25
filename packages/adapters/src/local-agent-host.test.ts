@@ -87,6 +87,100 @@ async function fixture(
 }
 
 describe("local host boundary", () => {
+  it("negotiates reuse only for capable callers and durably releases the exact binding", async () => {
+    const f = await fixture({ sessionReuse: true });
+    const release = vi.fn(async () => {});
+    const close = vi.fn(async () => {});
+    Object.assign(f.options.engine, { release, close, supportsSessionReuse: true });
+    expect(await (await f.call("/v1/lifecycle")).json()).toEqual({
+      sessionReuse: true,
+      sessionRelease: true,
+    });
+    await f.begin();
+    expect(f.start.mock.calls[0]![0].reuse).toBe(false);
+    f.executions[0]!.finish("completed");
+    await vi.waitFor(async () =>
+      expect((await (await f.call("/v1/runs/run")).json()).status).toBe("completed"),
+    );
+    await f.call("/v1/runs", { ...input, runId: "second" }, { "Rakazo-Session-Reuse": "1" });
+    await vi.waitFor(() => expect(f.start).toHaveBeenCalledTimes(2));
+    expect(f.start.mock.calls[1]![0].reuse).toBe(true);
+    const selector = {
+      scope: input.scope,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      idempotencyKey: "release",
+    };
+    expect(
+      (
+        await f.call("/v1/sessions/release", {
+          ...selector,
+          scope: { ...input.scope, userId: "other" },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await f.call("/v1/sessions/release", {
+          ...selector,
+          scope: { ...input.scope, threadId: "other" },
+        })
+      ).status,
+    ).toBe(403);
+    for (let i = 0; i < 2; i++)
+      expect(await (await f.call("/v1/sessions/release", selector)).json()).toEqual({
+        released: true,
+      });
+    expect(f.executions[1]!.cancel).toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(selector);
+    expect(
+      (await (await f.call("/v1/runs", { ...input, runId: "second", fence: 2 })).json()).status,
+    ).toBe("cancelled");
+    expect((await f.call("/v1/runs", { ...input, runId: "new-user-turn" })).status).toBe(200);
+    await vi.waitFor(() => expect(f.start).toHaveBeenCalledTimes(3));
+    await f.call("/v1/sessions/release", selector);
+    expect(f.executions[2]!.cancel).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
+    await f.close();
+    expect(close).toHaveBeenCalledOnce();
+    const restarted = await startLocalAgentHost(f.options);
+    cleanups.push(() => restarted.close());
+    const late = await fetch(`http://127.0.0.1:${restarted.port}/v1/runs`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${f.options.token}` },
+      body: JSON.stringify({ ...input, runId: "second", fence: 3 }),
+    });
+    expect((await late.json()).status).toBe("cancelled");
+    expect(f.start).toHaveBeenCalledTimes(3);
+  });
+  it("blocks fresh admission until release is confirmed and retries only the original operation", async () => {
+    const f = await fixture({ sessionReuse: true });
+    let confirm!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      confirm = resolve;
+    });
+    const release = vi.fn(async () => gate);
+    Object.assign(f.options.engine, { release, supportsSessionReuse: true });
+    await f.begin();
+    const selector = {
+      scope: input.scope,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      idempotencyKey: "operation",
+    };
+    const releasing = f.call("/v1/sessions/release", selector);
+    try {
+      await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
+      expect((await f.call("/v1/runs", { ...input, runId: "next" })).status).toBe(423);
+    } finally {
+      confirm();
+    }
+    expect((await releasing).status).toBe(200);
+    expect((await f.call("/v1/runs", { ...input, runId: "next" })).status).toBe(200);
+    await vi.waitFor(() => expect(f.start).toHaveBeenCalledTimes(2));
+    await f.call("/v1/sessions/release", selector);
+    expect(f.executions[1]!.cancel).not.toHaveBeenCalled();
+  });
   it("persists first activity while engine initialization is still blocked", async () => {
     let ready!: () => void;
     const gate = new Promise<void>((resolve) => {

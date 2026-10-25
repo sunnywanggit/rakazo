@@ -155,45 +155,50 @@ export async function setLocalAgentTarget(
       await client.close();
     }
   }
-  await deps.prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM threads WHERE id = ${bot.thread!.id} FOR UPDATE`;
-    if (
-      await tx.run.count({
-        where: { botId, spaceId: actor.spaceId, status: { in: [...ACTIVE_RUN_STATUSES] } },
-      })
-    )
-      throw new Error("Stop active work before changing the execution source");
-    if (!parsed) {
-      await tx.localAgentTarget.deleteMany({
+  await deps.prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM threads WHERE id = ${bot.thread!.id} FOR UPDATE`;
+      if (
+        await tx.run.count({
+          where: { botId, spaceId: actor.spaceId, status: { in: [...ACTIVE_RUN_STATUSES] } },
+        })
+      )
+        throw new Error("Stop active work before changing the execution source");
+      if (!parsed) {
+        await releaseLocalAgentSessions(deps, actor, { botId }, tx);
+        await tx.localAgentTarget.deleteMany({
+          where: { botId, spaceId: actor.spaceId, userId: actor.userId },
+        });
+        return;
+      }
+      const existing = await tx.localAgentTarget.findFirst({
         where: { botId, spaceId: actor.spaceId, userId: actor.userId },
       });
-      return;
-    }
-    const existing = await tx.localAgentTarget.findFirst({
-      where: { botId, spaceId: actor.spaceId, userId: actor.userId },
-    });
-    if (
-      existing &&
-      JSON.stringify(LocalAgentTargetSchema.strip().parse(existing)) === JSON.stringify(parsed)
-    )
-      return;
-    if (
-      !(await tx.localAgentConnection.findFirst({
-        where: {
-          id: parsed.connectionId,
-          spaceId: actor.spaceId,
-          userId: actor.userId,
-          enabled: true,
-        },
-      }))
-    )
-      throw new IsolationError();
-    await tx.localAgentTarget.upsert({
-      where: { botId },
-      create: { botId, spaceId: actor.spaceId, userId: actor.userId, ...parsed },
-      update: { ...parsed, revision: randomUUID() },
-    });
-  });
+      if (
+        existing &&
+        JSON.stringify(LocalAgentTargetSchema.strip().parse(existing)) === JSON.stringify(parsed)
+      )
+        return;
+      if (
+        !(await tx.localAgentConnection.findFirst({
+          where: {
+            id: parsed.connectionId,
+            spaceId: actor.spaceId,
+            userId: actor.userId,
+            enabled: true,
+          },
+        }))
+      )
+        throw new IsolationError();
+      await releaseLocalAgentSessions(deps, actor, { botId }, tx);
+      await tx.localAgentTarget.upsert({
+        where: { botId },
+        create: { botId, spaceId: actor.spaceId, userId: actor.userId, ...parsed },
+        update: { ...parsed, revision: randomUUID() },
+      });
+    },
+    { timeout: 30_000 },
+  );
 }
 
 /** Confirm native cancellation before callers remove history or advertise that work stopped. */
@@ -233,6 +238,38 @@ export async function cancelLocalAgentRuns(
       });
       if (!["cancelled", "completed", "failed", "uncertain"].includes(status.status))
         throw new Error("Local cancellation was not confirmed");
+    } finally {
+      await client.close();
+    }
+  }
+  await releaseLocalAgentSessions(deps, actor, filter);
+}
+
+/** Lifecycle operations use the same tenant predicates as starts, including historical idle sessions. */
+async function releaseLocalAgentSessions(
+  deps: LocalAgentSettingsDeps,
+  actor: Pick<Actor, "spaceId" | "userId">,
+  filter: { botId?: string; threadId?: string; connectionId?: string },
+  database: Pick<PrismaClient, "localAgentSession"> = deps.prisma,
+) {
+  const sessions = await database.localAgentSession.findMany({
+    where: { spaceId: actor.spaceId, userId: actor.userId, ...filter },
+  });
+  const operationId = randomUUID();
+  for (const session of sessions) {
+    const client = await localAgentConnectionClient(deps, actor, session.connectionId, true);
+    try {
+      await client.release({
+        scope: {
+          spaceId: actor.spaceId,
+          userId: actor.userId,
+          botId: session.botId,
+          threadId: session.threadId,
+        },
+        sessionId: session.id,
+        projectId: session.projectId,
+        idempotencyKey: `${operationId}:${session.id}`,
+      });
     } finally {
       await client.close();
     }

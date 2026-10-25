@@ -4,6 +4,8 @@ import {
   LocalAgentCapabilitiesSchema,
   LocalAgentDecisionSchema,
   LocalAgentEnvelopeSchema,
+  LocalAgentLifecycleSchema,
+  LocalAgentReleaseSchema,
   LocalAgentStatusSchema,
 } from "@rakazo/contracts";
 import { createSafeRemoteFetch } from "./remote-mcp.js";
@@ -56,12 +58,19 @@ export class LocalAgentClient {
       throw new Error("Local agent connection is not authorized");
     this.origin = origin;
   }
-  private async fetch(route: string, data?: unknown, signal?: AbortSignal, stream = false) {
+  private async fetch(
+    route: string,
+    data?: unknown,
+    signal?: AbortSignal,
+    stream = false,
+    headers: Record<string, string> = {},
+  ) {
     const response = await this.transport(new URL(route, this.origin), {
       method: data === undefined ? "GET" : "POST",
       headers: {
         authorization: `Bearer ${this.options.token}`,
         "content-type": "application/json",
+        ...headers,
       },
       body: data === undefined ? undefined : JSON.stringify(data),
       signal: stream
@@ -82,9 +91,33 @@ export class LocalAgentClient {
     return LocalAgentCapabilitiesSchema.parse(await (await this.fetch("/v1/capabilities")).json());
   }
   async start(request: LocalAgentStart, signal?: AbortSignal) {
+    const lifecycle = await this.lifecycle();
     return LocalAgentStatusSchema.parse(
-      await (await this.fetch("/v1/runs", request, signal)).json(),
+      await (
+        await this.fetch(
+          "/v1/runs",
+          request,
+          signal,
+          false,
+          lifecycle.sessionReuse ? { "Rakazo-Session-Reuse": "1" } : {},
+        )
+      ).json(),
     );
+  }
+  async lifecycle() {
+    try {
+      return LocalAgentLifecycleSchema.parse(await (await this.fetch("/v1/lifecycle")).json());
+    } catch (error) {
+      if (error instanceof LocalAgentRequestError && error.status === 404)
+        return { sessionReuse: false, sessionRelease: false };
+      throw error;
+    }
+  }
+  async release(input: unknown) {
+    const value = LocalAgentReleaseSchema.parse(input);
+    if (!(await this.lifecycle()).sessionRelease) return;
+    const result = await (await this.fetch("/v1/sessions/release", value)).json();
+    if (result?.released !== true) throw new Error("Local session release was not confirmed");
   }
   async status(id: string) {
     return LocalAgentStatusSchema.parse(

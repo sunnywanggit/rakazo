@@ -55,6 +55,10 @@ It uses absolute Node/tsx/source paths and argument arrays, with no shell and no
 
 ## Permissions, recovery and limits
 
+The optional lifecycle extension keeps the v1 execution payloads unchanged. New workers query `/v1/lifecycle` and explicitly request reuse; an older helper returns 404 and runs cold. The private helper configuration accepts `lifecycle: { "enabled": false, "idleTtlMs": 300000, "maxIdleSessions": 2 }`. Keep it disabled until every API/worker supports session release and existing work has drained. This is a local configuration setting, not a provider-specific environment variable.
+
+Clear, archive, deletion, execution-target changes and connection revocation release idle sessions as well as cancelling active work. Release receipts fence the old runs and retain native context for a later explicit turn; retrying a confirmed receipt cannot stop a later turn. A pending release blocks new admission until shutdown is confirmed. Discovery caches expire quickly and invalidate on local executable or credential/configuration changes. Phase diagnostics contain only stage names and monotonic durations.
+
 The named native permission profile allows the selected project and minimal OS runtime reads, denies `.env` files and external project access, disables command network access and disables ambient MCP servers, plugins, hooks, browser/computer integrations and subagents. The active resolved profile is checked before any turn. General command escalation and permission extensions are declined automatically. Only a previously observed finite patch inside a write-enabled project can request **Allow once**. Patches whose complete preview exceeds the card limit are declined. This does not authorize a broader shell or future requests.
 
 Approval cards identify the local project and expire after 15 minutes. Only the run's signed-in user can answer through the dedicated card endpoint; ordinary chat, model tools and generic answer endpoints cannot grant these requests. Declining a patch performs no file effect. Expired or restarted native RPCs cannot be revived by replaying a decision.

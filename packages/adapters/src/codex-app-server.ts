@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
@@ -9,6 +8,7 @@ import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit"
 import type { LocalAgentDecision } from "@rakazo/contracts";
 import { LocalAgentInteractionSchema } from "@rakazo/contracts";
 import { localAgentProgress } from "@rakazo/core";
+import { codexExecutableIdentity, codexLocalState } from "./codex-local-state.js";
 import { spawnOwnedCommand } from "./desktop-process-tree.js";
 import { localAgentActivity } from "./local-agent-activity.js";
 
@@ -121,6 +121,10 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
     cwd,
     env,
   );
+  const whenClosed = new Promise<void>((resolve) => {
+    child.once("exit", () => resolve());
+    child.once("error", () => resolve());
+  });
   let sequence = 0;
   let closed = false;
   let onMessage: (message: Rpc) => void = () => undefined;
@@ -169,6 +173,10 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
     }
   });
   return {
+    whenClosed,
+    get isClosed() {
+      return closed;
+    },
     send,
     request(method: string, params: unknown, timeoutMs = 15_000): Promise<any> {
       return new Promise((resolve, reject) => {
@@ -204,6 +212,7 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
     close() {
       lines.close();
       fail();
+      return whenClosed;
     },
   };
 }
@@ -259,11 +268,21 @@ async function boundedApproval(
 
 export class CodexAppServerEngine implements LocalAgentEngine {
   readonly id = "codex";
+  private versionCache?: { identity: string; expires: number };
+  private modelCache?: {
+    key: string;
+    expires: number;
+    values: Array<{ id: string; label: string }>;
+  };
+  private modelPending?: { key: string; promise: Promise<Array<{ id: string; label: string }>> };
+  private readonly connections = new Set<ReturnType<typeof connection>>();
+  private closed = false;
   constructor(
     private readonly options: {
       executable: string;
       env?: NodeJS.ProcessEnv;
       rpcTimeoutMs?: number;
+      onTiming?: (sample: { phase: string; durationMs: number }) => void;
     },
   ) {
     if (!path.isAbsolute(options.executable))
@@ -272,35 +291,69 @@ export class CodexAppServerEngine implements LocalAgentEngine {
   private environment() {
     return codexLocalEnvironment(this.options.env ?? process.env);
   }
+  async release() {
+    // With reuse disabled, the Host has already cancelled active work and every turn closes.
+  }
+  async close() {
+    this.closed = true;
+    this.versionCache = undefined;
+    this.modelCache = undefined;
+    await Promise.all([...this.connections].map((rpc) => rpc.close()));
+  }
+  private async timed<T>(phase: string, work: () => Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await work();
+    } finally {
+      try {
+        this.options.onTiming?.({ phase, durationMs: performance.now() - start });
+      } catch {
+        /* Diagnostics cannot change execution or disclose the native response. */
+      }
+    }
+  }
   private async open(cwd: string, access: "read" | "write") {
+    if (this.closed) throw new Error("Local engine is closed");
     const env = this.environment();
-    const version = await exec(this.options.executable, ["--version"], {
-      env,
-      timeout: 5_000,
-      maxBuffer: 4_096,
+    await this.timed("version", async () => {
+      const identity = await codexExecutableIdentity(this.options.executable);
+      if (this.versionCache?.identity === identity && this.versionCache.expires > performance.now())
+        return;
+      this.versionCache = undefined;
+      const version = await exec(this.options.executable, ["--version"], {
+        env,
+        timeout: 5_000,
+        maxBuffer: 4_096,
+      });
+      if (!version.stdout.startsWith(`codex-cli ${CODEX_LOCAL_PROTOCOL}.`))
+        throw new Error("Unsupported Codex CLI protocol version");
+      if (identity !== (await codexExecutableIdentity(this.options.executable)))
+        throw new Error("Codex executable changed during verification");
+      this.versionCache = { identity, expires: performance.now() + 300_000 };
     });
-    if (!version.stdout.startsWith(`codex-cli ${CODEX_LOCAL_PROTOCOL}.`))
-      throw new Error("Unsupported Codex CLI protocol version");
+    if (this.closed) throw new Error("Local engine is closed");
     const profile = `rakazo_${randomUUID().replaceAll("-", "")}`;
     const args = codexLocalArguments(cwd, access, profile);
     // CLI table overrides merge across config layers. Discover ambient entries before any thread
     // exists, then explicitly disable each one and recheck the second process before execution.
     for (let attempt = 0; attempt < 2; attempt++) {
       const rpc = connection(this.options.executable, args, cwd, env);
+      this.connections.add(rpc);
+      void rpc.whenClosed.then(() => this.connections.delete(rpc));
       try {
-        await rpc.request(
-          "initialize",
-          {
-            clientInfo: { name: "rakazo", title: "Rakazo", version: "0.1.0" },
-            capabilities: { experimentalApi: true },
-          },
-          this.options.rpcTimeoutMs,
+        await this.timed("initialize", () =>
+          rpc.request(
+            "initialize",
+            {
+              clientInfo: { name: "rakazo", title: "Rakazo", version: "0.1.0" },
+              capabilities: { experimentalApi: true },
+            },
+            this.options.rpcTimeoutMs,
+          ),
         );
         rpc.send({ method: "initialized", params: {} });
-        const { config } = await rpc.request(
-          "config/read",
-          { cwd, includeLayers: false },
-          this.options.rpcTimeoutMs,
+        const { config } = await this.timed("config", () =>
+          rpc.request("config/read", { cwd, includeLayers: false }, this.options.rpcTimeoutMs),
         );
         const ambient: Array<[string, string]> = [];
         for (const key of ["mcp_servers"]) {
@@ -329,7 +382,9 @@ export class CodexAppServerEngine implements LocalAgentEngine {
           disabledFeatures.some((feature) => config?.features?.[feature] !== false)
         )
           throw new Error("Codex tool features could not be isolated");
-        const account = await rpc.request("account/read", { refreshToken: false });
+        const account = await this.timed("account", () =>
+          rpc.request("account/read", { refreshToken: false }),
+        );
         if (!account.account) throw new Error("Sign in to Codex locally");
         const permissions = config?.permissions?.[profile];
         const expected = filesystemPolicy(cwd, access);
@@ -352,7 +407,27 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     throw new Error("Codex external tools could not be isolated");
   }
   async models() {
-    const { rpc } = await this.open(homedir(), "read");
+    if (this.closed) throw new Error("Local engine is closed");
+    const key = `${await codexExecutableIdentity(this.options.executable)}:${await codexLocalState(this.environment())}`;
+    if (this.modelCache?.key === key && this.modelCache.expires > performance.now())
+      return this.modelCache.values.map((value) => ({ ...value }));
+    if (this.modelPending?.key === key)
+      return (await this.modelPending.promise).map((value) => ({ ...value }));
+    this.modelCache = undefined;
+    const promise = this.readModels();
+    this.modelPending = { key, promise };
+    try {
+      const values = await promise;
+      const current = `${await codexExecutableIdentity(this.options.executable)}:${await codexLocalState(this.environment())}`;
+      if (current !== key) throw new Error("Local engine changed during model discovery");
+      this.modelCache = { key, expires: performance.now() + 30_000, values };
+      return values.map((value) => ({ ...value }));
+    } finally {
+      if (this.modelPending?.promise === promise) this.modelPending = undefined;
+    }
+  }
+  private async readModels() {
+    const { rpc } = await this.open(this.environment().HOME!, "read");
     try {
       const models: Array<{ id: string; label: string }> = [];
       let cursor: string | null = null;
@@ -373,13 +448,25 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     }
   }
   async start(input: Parameters<LocalAgentEngine["start"]>[0]): Promise<LocalAgentExecution> {
+    const began = performance.now();
+    const recordTiming = (phase: string) => {
+      try {
+        this.options.onTiming?.({ phase, durationMs: performance.now() - began });
+      } catch {
+        /* Timing is optional diagnostic metadata, never part of task success. */
+      }
+    };
     await input.emit({ type: "activity", text: localAgentProgress.connecting });
+    recordTiming("first_feedback");
     const { rpc, profile } = await this.open(input.cwd, input.request.access);
     const activity = localAgentActivity(input.emit);
     let threadId: string | undefined;
     let turnId: string | undefined;
     let settled = false;
     let stopping = false;
+    let firstEvent = true;
+    let firstText = true;
+    let cleanup: Promise<unknown> = Promise.resolve();
     let resolve!: (result: "completed" | "cancelled") => void;
     let reject!: (error: Error) => void;
     const completion = new Promise<"completed" | "cancelled">((ok, fail) => {
@@ -395,14 +482,15 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       if (settled) return;
       settled = true;
       input.signal?.removeEventListener("abort", abort);
-      void activity.close().then(
+      cleanup = Promise.all([activity.close(), rpc.close()]);
+      recordTiming("total");
+      void cleanup.then(
         () => {
           if (status) resolve(status);
           else reject(new Error("Codex turn did not complete"));
         },
         () => reject(new Error("Codex progress could not be saved")),
       );
-      rpc.close();
     };
     const abort = () => {
       stopping = true;
@@ -474,6 +562,10 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         turnId = p.turn?.id;
       }
       if (p.turnId && turnId && p.turnId !== turnId) return;
+      if (firstEvent) {
+        firstEvent = false;
+        recordTiming("first_native_event");
+      }
       if (message.method === "item/reasoning/summaryTextDelta" && typeof p.delta === "string")
         activity.summary(`${p.itemId}:${p.summaryIndex}`, p.delta);
       if (message.method === "item/started" && p.item?.type === "reasoning")
@@ -485,6 +577,10 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       )
         fileChanges.set(p.item.id, p.item.changes);
       if (message.method === "item/agentMessage/delta" && typeof p.delta === "string") {
+        if (firstText && p.delta.trim()) {
+          firstText = false;
+          recordTiming("first_text");
+        }
         await activity.barrier();
         await input.emit({ type: "text", text: p.delta });
       }
@@ -503,6 +599,7 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         );
       if (message.method === "error") {
         if (p.willRetry === true) {
+          recordTiming("retry");
           const info = p.error?.codexErrorInfo;
           const limited =
             info === "rateLimitExceeded" ||
@@ -543,13 +640,15 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         developerInstructions: input.request.instructions,
       };
       if (input.sessionRef) await activity.phase(localAgentProgress.restoring);
-      const started = await rpc.request(input.sessionRef ? "thread/resume" : "thread/start", {
-        ...selection,
-        // Rakazo already persists visible events; hydrate only native metadata on resume.
-        ...(input.sessionRef
-          ? { threadId: input.sessionRef, excludeTurns: true }
-          : { ephemeral: false }),
-      });
+      const started = await this.timed(input.sessionRef ? "resume" : "thread", () =>
+        rpc.request(input.sessionRef ? "thread/resume" : "thread/start", {
+          ...selection,
+          // Rakazo already persists visible events; hydrate only native metadata on resume.
+          ...(input.sessionRef
+            ? { threadId: input.sessionRef, excludeTurns: true }
+            : { ephemeral: false }),
+        }),
+      );
       if (
         started.activePermissionProfile?.id !== profile ||
         started.cwd !== input.cwd ||
@@ -564,15 +663,17 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       threadId = started.thread.id;
       await input.session(threadId!);
       input.signal?.throwIfAborted();
-      const turn = await rpc.request("turn/start", {
-        threadId,
-        input: [{ type: "text", text: input.request.prompt }],
-        clientUserMessageId: input.request.runId,
-        permissions: profile,
-        approvalPolicy: "on-request",
-        approvalsReviewer: "user",
-        summary: "concise",
-      });
+      const turn = await this.timed("submit", () =>
+        rpc.request("turn/start", {
+          threadId,
+          input: [{ type: "text", text: input.request.prompt }],
+          clientUserMessageId: input.request.runId,
+          permissions: profile,
+          approvalPolicy: "on-request",
+          approvalsReviewer: "user",
+          summary: "concise",
+        }),
+      );
       if (typeof turn.turn?.id !== "string") throw new Error("Invalid native turn");
       turnId = turn.turn.id;
       if (!settled) await activity.phase(localAgentProgress.waiting);
@@ -608,7 +709,10 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         pending.delete(id);
       },
       async cancel() {
-        if (settled) return;
+        if (settled) {
+          await cleanup;
+          return;
+        }
         stopping = true;
         try {
           await rpc.request("turn/interrupt", { threadId, turnId }, 750);
@@ -616,6 +720,7 @@ export class CodexAppServerEngine implements LocalAgentEngine {
           /* The owned process group is the bounded fallback. */
         }
         finish("cancelled");
+        await cleanup;
       },
     };
   }

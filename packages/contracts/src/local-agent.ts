@@ -17,6 +17,21 @@ export const LocalAgentCancelSchema = z.strictObject({
   runId: id,
   projectId: id,
 });
+/** Optional lifecycle extension; existing v1 execution payloads remain unchanged. */
+export const LocalAgentSessionSelectorSchema = z.strictObject({
+  scope: LocalAgentScopeSchema,
+  sessionId: id,
+  projectId: id,
+});
+export const LocalAgentReleaseSchema = LocalAgentSessionSelectorSchema.extend({
+  idempotencyKey: id,
+});
+export const LocalAgentLifecycleSchema = z.strictObject({
+  sessionReuse: z.boolean(),
+  sessionRelease: z.boolean(),
+});
+export type LocalAgentSessionSelector = z.infer<typeof LocalAgentSessionSelectorSchema>;
+export type LocalAgentRelease = z.infer<typeof LocalAgentReleaseSchema>;
 export const LocalAgentStartSchema = z.strictObject({
   scope: LocalAgentScopeSchema,
   runId: id,
