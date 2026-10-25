@@ -98,7 +98,12 @@ type Rpc = { id?: string | number; method?: string; params?: any; result?: any; 
 const SERVER_OWNER = `
 const { spawn } = require('node:child_process');
 const stop = () => { try { process.kill(-process.pid, 'SIGKILL'); } catch { process.exit(1); } };
-const child = spawn(process.argv[1], process.argv.slice(2), { stdio: ['pipe', 'inherit', 'inherit'], shell: false });
+const child = spawn(process.argv[1], process.argv.slice(2), { stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+// Native synchronous writers must not inherit Node's nonblocking output descriptors.
+// Fresh child pipes and Node's forwarding streams preserve backpressure for large replies.
+child.stdout.pipe(process.stdout);
+child.stderr.pipe(process.stderr);
+for (const output of [child.stdout, child.stderr, process.stdout, process.stderr]) output.once('error', stop);
 process.stdin.pipe(child.stdin);
 process.stdin.once('end', stop);
 process.stdin.once('error', stop);
@@ -499,7 +504,10 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       };
       const started = await rpc.request(input.sessionRef ? "thread/resume" : "thread/start", {
         ...selection,
-        ...(input.sessionRef ? { threadId: input.sessionRef } : { ephemeral: false }),
+        // Rakazo already persists visible events; hydrate only native metadata on resume.
+        ...(input.sessionRef
+          ? { threadId: input.sessionRef, excludeTurns: true }
+          : { ephemeral: false }),
       });
       if (
         started.activePermissionProfile?.id !== profile ||

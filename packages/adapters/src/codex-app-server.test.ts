@@ -69,6 +69,55 @@ describe("Codex native driver", () => {
       wire.filter((item) => item.method === "turn/start").map((item) => item.params.input[0].text),
     ).toEqual(["inspect", "continue"]);
   });
+  it("resumes long native conversations without hydrating previous turns", async () => {
+    const f = await fixture();
+    await f.execution.completion;
+    const source = await readFile(f.executable, "utf8");
+    await writeFile(
+      f.executable,
+      source.replace(
+        "thread:{id:thread},cwd",
+        "thread:{id:thread,turns:m.method==='thread/resume'&&!m.params.excludeTurns?[{text:'x'.repeat(1100000)}]:[]},cwd",
+      ),
+    );
+    const resumed = await f.engine.start({
+      request: { ...f.request, runId: "next", prompt: "continue" },
+      cwd: f.cwd,
+      sessionRef: "native-session",
+      emit: async () => undefined,
+      session: async () => undefined,
+    });
+    cleanup.push(() => resumed.cancel());
+    expect(await resumed.completion).toBe("completed");
+    const wire = (await readFile(path.join(f.base, "wire.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(wire.find((item) => item.method === "thread/resume").params.excludeTurns).toBe(true);
+    expect(wire.filter((item) => item.method === "turn/start")).toHaveLength(2);
+  });
+  it("forwards synchronous native stdout bursts without dropping a response", async () => {
+    const f = await codexFixture();
+    cleanup.push(f.dispose);
+    const source = await readFile(f.executable, "utf8");
+    await writeFile(
+      f.executable,
+      source
+        .replace(
+          "const send = value => process.stdout.write(JSON.stringify(value) + '\\n');",
+          "const send = value => { const bytes=Buffer.from(JSON.stringify(value)+'\\n'); let offset=0; while(offset<bytes.length) offset+=fs.writeSync(1,bytes,offset,bytes.length-offset); };",
+        )
+        .replace("thread:{id:thread},cwd", "thread:{id:thread},padding:'x'.repeat(700000),cwd"),
+    );
+    const execution = await f.engine.start({
+      request: f.request,
+      cwd: f.cwd,
+      session: async () => undefined,
+      emit: async () => undefined,
+    });
+    cleanup.push(() => execution.cancel());
+    expect(await execution.completion).toBe("completed");
+  });
   it("holds structured questions until an explicit answer arrives", async () => {
     const f = await fixture("question");
     await vi.waitFor(() =>
