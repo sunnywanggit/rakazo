@@ -1406,6 +1406,7 @@ msgstr ""
 #: src/pages/memory-providers/HonchoSettingsForm.tsx
 #: src/pages/memory-providers/SerenitySettingsForm.tsx
 #: src/pages/memory-providers/SupermemorySettingsForm.tsx
+#: src/pages/shell/local-agent-settings.tsx
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Connect"
 msgstr "연결"
@@ -1425,6 +1426,10 @@ msgstr "앱 연결"
 #: src/pages/PluginsOverlay.tsx
 msgid "Connect Executor"
 msgstr "Executor 연결"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Connect local agent"
+msgstr "로컬 에이전트 연결"
 
 #: src/pages/shell/message-cards.tsx
 msgid "Connect MCP server “{name}”"
@@ -2489,6 +2494,10 @@ msgstr "매월"
 msgid "Every week"
 msgstr "매주"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Execution"
+msgstr "실행"
+
 #: src/pages/PluginsOverlay.tsx
 msgid "Executor token"
 msgstr "Executor 토큰"
@@ -3052,6 +3061,10 @@ msgstr "로컬"
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local access lets bots run commands without asking. Avoid it on shared or public servers."
 msgstr "로컬 접근을 허용하면 Bot이 묻지 않고 명령을 실행할 수 있습니다. 공유 서버나 공개 서버에서는 허용하지 마세요."
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Local agent unavailable. Check the connection and stop active work before changing execution."
+msgstr "로컬 에이전트를 사용할 수 없습니다. 연결을 확인하고 실행 설정을 변경하기 전에 진행 중인 작업을 중지하세요."
 
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local computer access requires the latest desktop app."
@@ -3959,6 +3972,14 @@ msgstr "반응하기"
 msgid "Reactions"
 msgstr "반응"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read and write"
+msgstr "읽기 및 쓰기"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read only"
+msgstr "읽기 전용"
+
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
 msgstr "답변을 자동으로 읽기"
@@ -4305,6 +4326,10 @@ msgstr "서비스 설정을 확인한 뒤 다시 테스트하세요."
 msgid "Revoke"
 msgstr "연결 해제"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Revoke connection"
+msgstr "연결 해제"
+
 #: src/pages/ExternalConversationSettings.tsx
 msgid "Room guidance"
 msgstr ""
@@ -4387,6 +4412,10 @@ msgstr "저장"
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save credential"
 msgstr ""
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Save execution"
+msgstr "실행 설정 저장"
 
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save new value"
@@ -5311,6 +5340,10 @@ msgstr ""
 #: src/pages/Auth.tsx
 msgid "Use email code"
 msgstr "이메일 코드 사용"
+
+#: src/pages/shell/composer.tsx
+msgid "Use files in the selected project"
+msgstr "선택한 프로젝트의 파일을 사용하세요"
 
 #: src/components/ModelCredits.tsx
 msgid "Use my subscription or API key"

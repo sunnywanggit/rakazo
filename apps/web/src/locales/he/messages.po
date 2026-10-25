@@ -1406,6 +1406,7 @@ msgstr ""
 #: src/pages/memory-providers/HonchoSettingsForm.tsx
 #: src/pages/memory-providers/SerenitySettingsForm.tsx
 #: src/pages/memory-providers/SupermemorySettingsForm.tsx
+#: src/pages/shell/local-agent-settings.tsx
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Connect"
 msgstr "חיבור"
@@ -1425,6 +1426,10 @@ msgstr "חיבור אפליקציות"
 #: src/pages/PluginsOverlay.tsx
 msgid "Connect Executor"
 msgstr "חיבור Executor"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Connect local agent"
+msgstr "חיבור סוכן מקומי"
 
 #: src/pages/shell/message-cards.tsx
 msgid "Connect MCP server “{name}”"
@@ -2489,6 +2494,10 @@ msgstr "כל חודש"
 msgid "Every week"
 msgstr "כל שבוע"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Execution"
+msgstr "ביצוע"
+
 #: src/pages/PluginsOverlay.tsx
 msgid "Executor token"
 msgstr "טוקן Executor"
@@ -3052,6 +3061,10 @@ msgstr "מקומי"
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local access lets bots run commands without asking. Avoid it on shared or public servers."
 msgstr "גישה מקומית מאפשרת לבוטים להריץ פקודות בלי לבקש אישור. לא מומלץ להפעיל אותה בשרתים משותפים או ציבוריים."
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Local agent unavailable. Check the connection and stop active work before changing execution."
+msgstr "הסוכן המקומי אינו זמין. יש לבדוק את החיבור ולעצור משימות פעילות לפני שינוי הגדרות הביצוע."
 
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local computer access requires the latest desktop app."
@@ -3959,6 +3972,14 @@ msgstr "הוספת אמוג׳י"
 msgid "Reactions"
 msgstr "אמוג׳י"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read and write"
+msgstr "קריאה וכתיבה"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read only"
+msgstr "קריאה בלבד"
+
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
 msgstr "הקראת תשובות בקול"
@@ -4305,6 +4326,10 @@ msgstr "יש לבדוק את הגדרות הספק ולבדוק שוב."
 msgid "Revoke"
 msgstr "ביטול הרשאה"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Revoke connection"
+msgstr "ביטול החיבור"
+
 #: src/pages/ExternalConversationSettings.tsx
 msgid "Room guidance"
 msgstr "הנחיות לחדר"
@@ -4387,6 +4412,10 @@ msgstr "שמירה"
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save credential"
 msgstr "שמירת פרטי הגישה"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Save execution"
+msgstr "שמירת הגדרות הביצוע"
 
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save new value"
@@ -5311,6 +5340,10 @@ msgstr "שימוש בהנחיות ברירת המחדל"
 #: src/pages/Auth.tsx
 msgid "Use email code"
 msgstr "שימוש בקוד מהאימייל"
+
+#: src/pages/shell/composer.tsx
+msgid "Use files in the selected project"
+msgstr "יש להשתמש בקבצים בפרויקט שנבחר"
 
 #: src/components/ModelCredits.tsx
 msgid "Use my subscription or API key"

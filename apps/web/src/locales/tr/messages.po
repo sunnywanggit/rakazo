@@ -1406,6 +1406,7 @@ msgstr ""
 #: src/pages/memory-providers/HonchoSettingsForm.tsx
 #: src/pages/memory-providers/SerenitySettingsForm.tsx
 #: src/pages/memory-providers/SupermemorySettingsForm.tsx
+#: src/pages/shell/local-agent-settings.tsx
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Connect"
 msgstr "Bağlan"
@@ -1425,6 +1426,10 @@ msgstr "Uygulamaları bağla"
 #: src/pages/PluginsOverlay.tsx
 msgid "Connect Executor"
 msgstr "Executor'a bağlan"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Connect local agent"
+msgstr "Yerel ajanı bağla"
 
 #: src/pages/shell/message-cards.tsx
 msgid "Connect MCP server “{name}”"
@@ -2489,6 +2494,10 @@ msgstr "Her ay"
 msgid "Every week"
 msgstr "Her hafta"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Execution"
+msgstr "Yürütme"
+
 #: src/pages/PluginsOverlay.tsx
 msgid "Executor token"
 msgstr "Executor belirteci"
@@ -3052,6 +3061,10 @@ msgstr "Yerel"
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local access lets bots run commands without asking. Avoid it on shared or public servers."
 msgstr "Yerel erişim, botların sormadan komut çalıştırmasına izin verir. Paylaşılan veya herkese açık sunucularda bunu kullanma."
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Local agent unavailable. Check the connection and stop active work before changing execution."
+msgstr "Yerel ajan kullanılamıyor. Yürütme ayarlarını değiştirmeden önce bağlantıyı kontrol edin ve etkin görevleri durdurun."
 
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local computer access requires the latest desktop app."
@@ -3959,6 +3972,14 @@ msgstr "Tepki ver"
 msgid "Reactions"
 msgstr "Tepkiler"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read and write"
+msgstr "Okuma ve yazma"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read only"
+msgstr "Salt okunur"
+
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
 msgstr "Yanıtları sesli oku"
@@ -4305,6 +4326,10 @@ msgstr "Sağlayıcı ayarlarını gözden geçir ve yeniden test et."
 msgid "Revoke"
 msgstr "İptal et"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Revoke connection"
+msgstr "Bağlantıyı iptal et"
+
 #: src/pages/ExternalConversationSettings.tsx
 msgid "Room guidance"
 msgstr ""
@@ -4387,6 +4412,10 @@ msgstr "Kaydet"
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save credential"
 msgstr ""
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Save execution"
+msgstr "Yürütme ayarlarını kaydet"
 
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save new value"
@@ -5311,6 +5340,10 @@ msgstr ""
 #: src/pages/Auth.tsx
 msgid "Use email code"
 msgstr "E-posta kodu kullan"
+
+#: src/pages/shell/composer.tsx
+msgid "Use files in the selected project"
+msgstr "Seçili projedeki dosyaları kullanın"
 
 #: src/components/ModelCredits.tsx
 msgid "Use my subscription or API key"

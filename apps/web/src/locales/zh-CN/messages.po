@@ -1406,6 +1406,7 @@ msgstr ""
 #: src/pages/memory-providers/HonchoSettingsForm.tsx
 #: src/pages/memory-providers/SerenitySettingsForm.tsx
 #: src/pages/memory-providers/SupermemorySettingsForm.tsx
+#: src/pages/shell/local-agent-settings.tsx
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Connect"
 msgstr "连接"
@@ -1425,6 +1426,10 @@ msgstr "连接应用"
 #: src/pages/PluginsOverlay.tsx
 msgid "Connect Executor"
 msgstr "连接 Executor"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Connect local agent"
+msgstr "连接本机执行器"
 
 #: src/pages/shell/message-cards.tsx
 msgid "Connect MCP server “{name}”"
@@ -2489,6 +2494,10 @@ msgstr "每月"
 msgid "Every week"
 msgstr "每周"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Execution"
+msgstr "执行方式"
+
 #: src/pages/PluginsOverlay.tsx
 msgid "Executor token"
 msgstr "Executor 令牌"
@@ -3052,6 +3061,10 @@ msgstr "本地"
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local access lets bots run commands without asking. Avoid it on shared or public servers."
 msgstr "本地访问权限允许 Bot 无需询问就执行命令。请勿在共享或公开服务器上启用。"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Local agent unavailable. Check the connection and stop active work before changing execution."
+msgstr "本机执行器不可用。请检查连接，并在更改执行方式前停止正在进行的任务。"
 
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local computer access requires the latest desktop app."
@@ -3959,6 +3972,14 @@ msgstr "回应"
 msgid "Reactions"
 msgstr "表情回应"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read and write"
+msgstr "读写"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read only"
+msgstr "只读"
+
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
 msgstr "朗读回复"
@@ -4305,6 +4326,10 @@ msgstr "请检查提供方设置并重新测试。"
 msgid "Revoke"
 msgstr "撤销"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Revoke connection"
+msgstr "撤销连接"
+
 #: src/pages/ExternalConversationSettings.tsx
 msgid "Room guidance"
 msgstr ""
@@ -4387,6 +4412,10 @@ msgstr "保存"
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save credential"
 msgstr ""
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Save execution"
+msgstr "保存执行设置"
 
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save new value"
@@ -5311,6 +5340,10 @@ msgstr ""
 #: src/pages/Auth.tsx
 msgid "Use email code"
 msgstr "使用邮箱验证码"
+
+#: src/pages/shell/composer.tsx
+msgid "Use files in the selected project"
+msgstr "使用所选项目中的文件"
 
 #: src/components/ModelCredits.tsx
 msgid "Use my subscription or API key"

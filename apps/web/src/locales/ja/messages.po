@@ -1406,6 +1406,7 @@ msgstr "確認"
 #: src/pages/memory-providers/HonchoSettingsForm.tsx
 #: src/pages/memory-providers/SerenitySettingsForm.tsx
 #: src/pages/memory-providers/SupermemorySettingsForm.tsx
+#: src/pages/shell/local-agent-settings.tsx
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Connect"
 msgstr "接続"
@@ -1425,6 +1426,10 @@ msgstr "アプリを接続"
 #: src/pages/PluginsOverlay.tsx
 msgid "Connect Executor"
 msgstr "Executorを接続"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Connect local agent"
+msgstr "ローカルエージェントに接続"
 
 #: src/pages/shell/message-cards.tsx
 msgid "Connect MCP server “{name}”"
@@ -2489,6 +2494,10 @@ msgstr "毎月"
 msgid "Every week"
 msgstr "毎週"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Execution"
+msgstr "実行"
+
 #: src/pages/PluginsOverlay.tsx
 msgid "Executor token"
 msgstr "実行トークン"
@@ -3052,6 +3061,10 @@ msgstr "ローカル"
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local access lets bots run commands without asking. Avoid it on shared or public servers."
 msgstr "ローカルアクセスでは、ボットが確認なしでコマンドを実行できます。共有サーバーや公開サーバーでは使用しないでください。"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Local agent unavailable. Check the connection and stop active work before changing execution."
+msgstr "ローカルエージェントを利用できません。接続を確認し、実行設定を変更する前に進行中のタスクを停止してください。"
 
 #: src/pages/HostComputerPrompt.tsx
 msgid "Local computer access requires the latest desktop app."
@@ -3959,6 +3972,14 @@ msgstr "リアクション"
 msgid "Reactions"
 msgstr "リアクション"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read and write"
+msgstr "読み書き"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Read only"
+msgstr "読み取り専用"
+
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
 msgstr "返信を読み上げる"
@@ -4305,6 +4326,10 @@ msgstr "プロバイダー設定を確認して、もう一度テストしてく
 msgid "Revoke"
 msgstr "取り消す"
 
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Revoke connection"
+msgstr "接続を取り消す"
+
 #: src/pages/ExternalConversationSettings.tsx
 msgid "Room guidance"
 msgstr "ルームのガイダンス"
@@ -4387,6 +4412,10 @@ msgstr "保存"
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save credential"
 msgstr "認証情報を保存"
+
+#: src/pages/shell/local-agent-settings.tsx
+msgid "Save execution"
+msgstr "実行設定を保存"
 
 #: src/pages/shell/bot-credentials.tsx
 msgid "Save new value"
@@ -5311,6 +5340,10 @@ msgstr "デフォルトのガイダンスを使用"
 #: src/pages/Auth.tsx
 msgid "Use email code"
 msgstr "メールのコードを使用"
+
+#: src/pages/shell/composer.tsx
+msgid "Use files in the selected project"
+msgstr "選択したプロジェクト内のファイルを使用してください"
 
 #: src/components/ModelCredits.tsx
 msgid "Use my subscription or API key"
