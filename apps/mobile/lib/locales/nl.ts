@@ -977,4 +977,10 @@ export const NL_MESSAGES: Record<string, string> = {
   "How big is your team?": "Hoe groot is je team?",
   "How did you hear about us?": "Hoe heb je over ons gehoord?",
   "Welcome to Rakazo": "Welkom bij Rakazo",
+  "Connecting…": "Verbinden…",
+  "Restoring session…": "Sessie herstellen…",
+  "Waiting for model…": "Wachten op het model…",
+  "Thinking…": "Nadenken…",
+  "Retrying…": "Opnieuw proberen…",
+  "Rate limited; waiting to retry…": "Aanvraaglimiet bereikt; wachten op nieuwe poging…",
 };

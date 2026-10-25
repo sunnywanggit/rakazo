@@ -38,6 +38,7 @@ import {
   liveActivityLine,
   liveMessageComposing,
   localAgentCardDecision,
+  localAgentProgressLabel,
   openThreadWindow,
   plainTextFromMarkdown,
   projectBotMentions,
@@ -797,7 +798,14 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
   const hasLiveProgress = visibleMessages.some(
     (message) => message.id.startsWith("progress:") && liveMessageComposing(message.blocks),
   );
-  const activityLine = liveActivityLine(snap?.messages ?? []);
+  const activityLine = localAgentProgressLabel(liveActivityLine(snap?.messages ?? []), {
+    connecting: t("Connecting…"),
+    restoring: t("Restoring session…"),
+    waiting: t("Waiting for model…"),
+    thinking: t("Thinking…"),
+    retrying: t("Retrying…"),
+    limited: t("Rate limited; waiting to retry…"),
+  });
   const userBubble = useMemo(
     () =>
       !inGroup && currentBot ? chatUserBubbleColors(currentBot.color, currentBot.id) : undefined,

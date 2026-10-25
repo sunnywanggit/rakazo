@@ -35,6 +35,16 @@ readline.createInterface({input:process.stdin}).on('line', line => {
    prompt=m.params.input[0].text; reply(m.id,{turn:{id:turn}});
    send({method:'turn/started',params:{threadId:thread,turn:{id:turn}}});
    if (prompt === 'wait') return;
+   if (prompt === 'progress') {
+     send({method:'item/started',params:{threadId:thread,turnId:turn,item:{id:'reason',type:'reasoning'}}});
+     send({method:'item/reasoning/summaryTextDelta',params:{threadId:thread,turnId:turn,itemId:'reason',summaryIndex:0,delta:'Public summary'}});
+     send({method:'item/reasoning/textDelta',params:{threadId:thread,turnId:turn,itemId:'reason',delta:'PRIVATE_REASONING_FIXTURE'}});
+     setTimeout(() => {
+       send({method:'item/agentMessage/delta',params:{threadId:thread,turnId:turn,delta:'one'}});
+       send({method:'error',params:{threadId:thread,turnId:turn,willRetry:true,error:{message:'PRIVATE_PROVIDER_DETAILS',codexErrorInfo:{httpConnectionFailed:{httpStatusCode:429}}}}});
+       send({method:'item/agentMessage/delta',params:{threadId:thread,turnId:turn,delta:'two'}}); done();
+     }, 300); return;
+   }
    if (prompt === 'delayed') { send({method:'item/agentMessage/delta',params:{threadId:thread,turnId:turn,delta:'started'}}); setTimeout(done, 1500); return; }
    if (prompt === 'question') { send({id:900,method:'item/tool/requestUserInput',params:{threadId:thread,turnId:turn,itemId:'ask',isBlocking:true,questions:[{id:'choice',question:'Which file?',isSecret:false,options:[{label:'one'}]}]}}); return; }
    if (prompt === 'approval') {

@@ -12,6 +12,7 @@ import {
   LocalAgentEnvelopeSchema,
   LocalAgentStartSchema,
 } from "@rakazo/contracts";
+import { localAgentProgress } from "@rakazo/core";
 
 export interface LocalAgentHostOptions {
   root: string;
@@ -173,6 +174,8 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
   });
   const append = async (record: RunRecord, event: LocalAgentEnvelope["event"]) => {
     if (terminal(record)) return;
+    const last = record.events.at(-1)?.event;
+    if (event.type === "activity" && last?.type === "activity" && last.text === event.text) return;
     if (
       Buffer.byteLength(JSON.stringify(record.events)) + Buffer.byteLength(JSON.stringify(event)) >
       (options.maxEventBytes ?? 4_000_000)
@@ -226,6 +229,10 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     const controller = new AbortController();
     controllers.set(id, controller);
     try {
+      // Persist feedback before any engine setup can block on local or remote discovery.
+      await exclusive(() =>
+        append(record, { type: "activity", text: localAgentProgress.connecting }),
+      );
       const project = projects.get(record.request.projectId)!;
       // Re-resolve immediately before execution, rejecting a replaced project symlink.
       if ((await realpath(project.root)) !== project.root)

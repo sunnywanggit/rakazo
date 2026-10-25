@@ -5612,3 +5612,23 @@ msgstr "Seu provedor de voz está sem crédito."
 #: src/lib/user-error.ts
 msgid "Your voice provider key was rejected."
 msgstr "Seu provedor de voz recusou a chave."
+
+#: src/pages/shell/transcript.tsx
+msgid "Restoring session…"
+msgstr "Restaurando sessão…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Waiting for model…"
+msgstr "Aguardando o modelo…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Thinking…"
+msgstr "Pensando…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Retrying…"
+msgstr "Tentando novamente…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Rate limited; waiting to retry…"
+msgstr "Limite de solicitações; aguardando nova tentativa…"

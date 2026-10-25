@@ -87,6 +87,35 @@ async function fixture(
 }
 
 describe("local host boundary", () => {
+  it("persists first activity while engine initialization is still blocked", async () => {
+    let ready!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const start = vi.fn<LocalAgentEngine["start"]>(async () => {
+      await gate;
+      return {
+        completion: Promise.resolve("cancelled" as const),
+        cancel: async () => {},
+        respond: async () => {},
+      };
+    });
+    const f = await fixture({ engine: { id: "fake", models: async () => [], start } });
+    try {
+      expect((await f.call("/v1/runs", input)).status).toBe(200);
+      await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+      const response = await f.call("/v1/runs/run/events");
+      const reader = response.body!.getReader();
+      const { value } = await reader.read();
+      expect(JSON.parse(new TextDecoder().decode(value).trim())).toEqual({
+        sequence: 1,
+        event: { type: "activity", text: "Connecting…" },
+      });
+      await reader.cancel();
+    } finally {
+      ready();
+    }
+  });
   it("rejects relative state paths before writing credentials into a checkout", async () => {
     await expect(fixture({ root: "relative-local-state" })).rejects.toThrow("absolute");
   });
@@ -145,11 +174,11 @@ describe("local host boundary", () => {
     await vi.waitFor(async () =>
       expect((await (await f.call("/v1/runs/run")).json()).status).toBe("completed"),
     );
-    const events = (await (await f.call("/v1/runs/run/events?after=1")).text())
+    const events = (await (await f.call("/v1/runs/run/events?after=2")).text())
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(events.map((event) => event.sequence)).toEqual([2, 3]);
+    expect(events.map((event) => event.sequence)).toEqual([3, 4]);
     expect(events[1].event).toEqual({ type: "terminal", status: "completed" });
     expect((await f.call("/v1/runs/run/events?after=999")).status).toBe(409);
   });
@@ -251,7 +280,7 @@ describe("local host boundary", () => {
   });
 
   it("bounds retained runs and event data", async () => {
-    const f = await fixture({ maxRuns: 1, maxEventBytes: 60 });
+    const f = await fixture({ maxRuns: 1, maxEventBytes: 120 });
     await f.begin();
     await f.executions[0]!.emit({ type: "text", text: "x".repeat(100) });
     expect((await (await f.call("/v1/runs/run")).json()).status).toBe("failed");

@@ -304,6 +304,21 @@ export function reduceLiveMessageBlocks(
   blocks: readonly MessageBlock[],
   update: LiveMessageUpdate,
 ): MessageBlock[] {
+  // Activity is a replaceable status slot, never part of the cumulative assistant text.
+  // Keep the body while a tool/model waits, then append new body deltas to that same body.
+  if (update.type === "progress" && update.payload?.activity === true) {
+    const previous = blocks.at(-1);
+    const activityText = progressMessageText(
+      update.payload,
+      previous?.kind === "progress" && previous.activity ? previous.text : "",
+    );
+    const body = blocks.filter((block) => block.kind !== "progress" || !block.activity);
+    return activityText
+      ? [...body, { kind: "progress", text: activityText, activity: true }]
+      : body;
+  }
+  if (update.type === "progress")
+    blocks = blocks.filter((block) => block.kind !== "progress" || !block.activity);
   const tail = blocks.at(-1);
   const segments = tail?.kind === "progress" ? blocks.slice(0, -1) : blocks;
   const priorText = liveMessageText(blocks);
@@ -343,8 +358,9 @@ export function reduceLiveMessageBlocks(
 
 function liveMessageText(blocks: readonly MessageBlock[]): string {
   return blocks
-    .filter((block) => block.kind === "text" || block.kind === "progress")
-    .map((block) => block.text)
+    .flatMap((block) =>
+      block.kind === "text" || (block.kind === "progress" && !block.activity) ? [block.text] : [],
+    )
     .join("");
 }
 

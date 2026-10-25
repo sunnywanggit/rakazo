@@ -5612,3 +5612,23 @@ msgstr "Ses sağlayıcınızın kredisi bitti."
 #: src/lib/user-error.ts
 msgid "Your voice provider key was rejected."
 msgstr "Ses sağlayıcınız anahtarı reddetti."
+
+#: src/pages/shell/transcript.tsx
+msgid "Restoring session…"
+msgstr "Oturum geri yükleniyor…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Waiting for model…"
+msgstr "Model yanıtı bekleniyor…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Thinking…"
+msgstr "Düşünüyor…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Retrying…"
+msgstr "Yeniden deneniyor…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Rate limited; waiting to retry…"
+msgstr "İstek sınırına ulaşıldı; yeniden deneme bekleniyor…"

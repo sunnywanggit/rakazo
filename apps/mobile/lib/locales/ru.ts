@@ -1019,4 +1019,10 @@ export const RU_MESSAGES: Record<string, string> = {
   "How big is your team?": "Сколько человек в вашей команде?",
   "How did you hear about us?": "Как вы о нас узнали?",
   "Welcome to Rakazo": "Добро пожаловать в Rakazo",
+  "Connecting…": "Подключение…",
+  "Restoring session…": "Восстановление сеанса…",
+  "Waiting for model…": "Ожидание модели…",
+  "Thinking…": "Обдумывание…",
+  "Retrying…": "Повторная попытка…",
+  "Rate limited; waiting to retry…": "Лимит запросов; ожидание повторной попытки…",
 };

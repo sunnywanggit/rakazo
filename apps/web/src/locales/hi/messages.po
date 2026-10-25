@@ -5612,3 +5612,23 @@ msgstr "आपके आवाज़ प्रोवाइडर का क्�
 #: src/lib/user-error.ts
 msgid "Your voice provider key was rejected."
 msgstr "आपके आवाज़ प्रोवाइडर ने कुंजी अस्वीकार कर दी।"
+
+#: src/pages/shell/transcript.tsx
+msgid "Restoring session…"
+msgstr "सत्र बहाल हो रहा है…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Waiting for model…"
+msgstr "मॉडल की प्रतीक्षा है…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Thinking…"
+msgstr "सोच रहा है…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Retrying…"
+msgstr "फिर कोशिश हो रही है…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Rate limited; waiting to retry…"
+msgstr "अनुरोध सीमा पूरी; फिर कोशिश की प्रतीक्षा…"

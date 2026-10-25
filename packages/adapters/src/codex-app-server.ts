@@ -8,7 +8,9 @@ import { promisify } from "node:util";
 import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit";
 import type { LocalAgentDecision } from "@rakazo/contracts";
 import { LocalAgentInteractionSchema } from "@rakazo/contracts";
+import { localAgentProgress } from "@rakazo/core";
 import { spawnOwnedCommand } from "./desktop-process-tree.js";
+import { localAgentActivity } from "./local-agent-activity.js";
 
 const exec = promisify(execFile);
 const inside = (root: string, candidate: unknown) => {
@@ -371,7 +373,9 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     }
   }
   async start(input: Parameters<LocalAgentEngine["start"]>[0]): Promise<LocalAgentExecution> {
+    await input.emit({ type: "activity", text: localAgentProgress.connecting });
     const { rpc, profile } = await this.open(input.cwd, input.request.access);
+    const activity = localAgentActivity(input.emit);
     let threadId: string | undefined;
     let turnId: string | undefined;
     let settled = false;
@@ -391,8 +395,13 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       if (settled) return;
       settled = true;
       input.signal?.removeEventListener("abort", abort);
-      if (status) resolve(status);
-      else reject(new Error("Codex turn did not complete"));
+      void activity.close().then(
+        () => {
+          if (status) resolve(status);
+          else reject(new Error("Codex turn did not complete"));
+        },
+        () => reject(new Error("Codex progress could not be saved")),
+      );
       rpc.close();
     };
     const abort = () => {
@@ -454,28 +463,36 @@ export class CodexAppServerEngine implements LocalAgentEngine {
           expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
         });
         pending.set(interaction.id, { rpcId: message.id, method: message.method, params: p });
+        await activity.barrier();
         await input.emit({ type: "interaction", interaction });
         return;
       }
-      if (p.threadId !== threadId) return;
+      const connectionError = message.method === "error" && !p.threadId && !p.turnId;
+      if (!connectionError && p.threadId !== threadId) return;
       if (message.method === "turn/started") {
         if (turnId && p.turn?.id !== turnId) return;
         turnId = p.turn?.id;
       }
       if (p.turnId && turnId && p.turnId !== turnId) return;
+      if (message.method === "item/reasoning/summaryTextDelta" && typeof p.delta === "string")
+        activity.summary(`${p.itemId}:${p.summaryIndex}`, p.delta);
+      if (message.method === "item/started" && p.item?.type === "reasoning")
+        await activity.phase(localAgentProgress.thinking);
       if (
         message.method === "item/started" &&
         p.item?.type === "fileChange" &&
         Array.isArray(p.item.changes)
       )
         fileChanges.set(p.item.id, p.item.changes);
-      if (message.method === "item/agentMessage/delta" && typeof p.delta === "string")
+      if (message.method === "item/agentMessage/delta" && typeof p.delta === "string") {
+        await activity.barrier();
         await input.emit({ type: "text", text: p.delta });
+      }
       if (
         message.method === "item/started" &&
         ["commandExecution", "fileChange"].includes(p.item?.type)
       )
-        await input.emit({ type: "activity", text: p.item.command ?? "Local file changes" });
+        await activity.phase(p.item.command ?? "Local file changes");
       if (message.method === "turn/completed" && p.turn?.id === turnId)
         finish(
           p.turn.status === "completed"
@@ -484,11 +501,34 @@ export class CodexAppServerEngine implements LocalAgentEngine {
               ? "cancelled"
               : undefined,
         );
-      if (message.method === "error") finish();
+      if (message.method === "error") {
+        if (p.willRetry === true) {
+          const info = p.error?.codexErrorInfo;
+          const limited =
+            info === "rateLimitExceeded" ||
+            [
+              "httpConnectionFailed",
+              "responseStreamConnectionFailed",
+              "responseStreamDisconnected",
+              "responseTooManyFailedAttempts",
+            ].some((key) => info?.[key]?.httpStatusCode === 429);
+          await activity.phase(limited ? localAgentProgress.limited : localAgentProgress.retrying);
+        } else finish();
+      }
+    };
+    let starting = true;
+    const early: Rpc[] = [];
+    let earlyBytes = 0;
+    const enqueue = (message: Rpc) => {
+      events = events.then(() => (settled ? undefined : handle(message))).catch(() => finish());
     };
     rpc.listen(
       (message) => {
-        events = events.then(() => handle(message)).catch(() => finish());
+        if (starting) {
+          earlyBytes += Buffer.byteLength(JSON.stringify(message));
+          if (early.length >= 512 || earlyBytes > 1_000_000) return finish();
+          early.push(message);
+        } else enqueue(message);
       },
       () => finish(stopping ? "cancelled" : undefined),
     );
@@ -502,6 +542,7 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         approvalsReviewer: "user",
         developerInstructions: input.request.instructions,
       };
+      if (input.sessionRef) await activity.phase(localAgentProgress.restoring);
       const started = await rpc.request(input.sessionRef ? "thread/resume" : "thread/start", {
         ...selection,
         // Rakazo already persists visible events; hydrate only native metadata on resume.
@@ -530,9 +571,13 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         permissions: profile,
         approvalPolicy: "on-request",
         approvalsReviewer: "user",
+        summary: "concise",
       });
       if (typeof turn.turn?.id !== "string") throw new Error("Invalid native turn");
       turnId = turn.turn.id;
+      if (!settled) await activity.phase(localAgentProgress.waiting);
+      starting = false;
+      for (const message of early.splice(0)) enqueue(message);
     } catch (error) {
       finish();
       throw error;

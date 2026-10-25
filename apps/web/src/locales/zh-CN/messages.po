@@ -5612,3 +5612,23 @@ msgstr "你的语音提供方额度已用完。"
 #: src/lib/user-error.ts
 msgid "Your voice provider key was rejected."
 msgstr "你的语音提供方拒绝了该密钥。"
+
+#: src/pages/shell/transcript.tsx
+msgid "Restoring session…"
+msgstr "正在恢复会话…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Waiting for model…"
+msgstr "等待模型响应…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Thinking…"
+msgstr "思考中…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Retrying…"
+msgstr "正在重试…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Rate limited; waiting to retry…"
+msgstr "请求受限，等待重试…"

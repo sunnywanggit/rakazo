@@ -7,6 +7,25 @@ import {
   signup,
 } from "./helpers";
 
+test("local progress uses the existing status line with tool activity off", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/e2e/fixtures/local-agent-progress.html");
+  const status = page.getByRole("status");
+  await expect(status).toHaveText("Connecting…");
+  for (const label of [
+    "Waiting for model…",
+    "Fixture public summary",
+    "Rate limited; waiting to retry…",
+  ]) {
+    await page.getByRole("button", { name: "Next fixture event" }).click();
+    await expect(status).toHaveText(label);
+  }
+  await captureScreenshot(page, testInfo, "local-agent-progress-retrying");
+  await page.getByRole("button", { name: "Stop fixture" }).click();
+  await expect(status).toHaveCount(0);
+});
+
 test("local execution settings progressively reveal pairing and project access", async ({
   page,
 }, testInfo) => {

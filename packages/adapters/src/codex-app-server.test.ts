@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { LocalAgentEvent } from "@rakazo/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CodexAppServerEngine,
@@ -18,7 +19,7 @@ afterEach(async () => {
 async function fixture(prompt = "inspect", access: "read" | "write" = "read") {
   const f = await codexFixture();
   cleanup.push(f.dispose);
-  const emit = vi.fn(async () => undefined);
+  const emit = vi.fn<(event: LocalAgentEvent) => Promise<void>>(async () => undefined);
   const session = vi.fn(async () => undefined);
   const execution = await f.engine.start({
     request: { ...f.request, prompt, access },
@@ -31,6 +32,27 @@ async function fixture(prompt = "inspect", access: "read" | "write" = "read") {
 }
 
 describe("Codex native driver", () => {
+  it("streams public progress and survives native rate-limit retries without resubmitting input", async () => {
+    const f = await fixture("progress");
+    expect(await f.execution.completion).toBe("completed");
+    const events = f.emit.mock.calls.map(([event]) => event) as any[];
+    expect(
+      events
+        .filter((event) => event.type === "text")
+        .map((event) => event.text)
+        .join(""),
+    ).toBe("onetwo");
+    expect(events).toContainEqual({ type: "activity", text: "Public summary" });
+    expect(events).toContainEqual({ type: "activity", text: "Rate limited; waiting to retry…" });
+    expect(JSON.stringify(events)).not.toContain("PRIVATE_");
+    const wire = (await readFile(path.join(f.base, "wire.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(wire.filter((item) => item.method === "turn/start")).toHaveLength(1);
+    expect(wire.find((item) => item.method === "turn/start").params.summary).toBe("concise");
+    expect(wire.find((item) => item.method === "turn/start").params.effort).toBeUndefined();
+  });
   it("discovers models from the authenticated CLI", async () => {
     const f = await codexFixture();
     cleanup.push(f.dispose);

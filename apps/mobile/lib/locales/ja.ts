@@ -1012,4 +1012,10 @@ export const JA_MESSAGES: Record<string, string> = {
   "Connect apps": "アプリを接続",
   "Bring your own key. ElevenLabs, OpenAI, Cartesia, and Fish Audio all plug into the same speak buttons.":
     "ご自身のキーを使用できます。ElevenLabs、OpenAI、Cartesia、Fish Audioはすべて同じ読み上げボタンで使えます。",
+  "Connecting…": "接続中…",
+  "Restoring session…": "セッションを復元中…",
+  "Waiting for model…": "モデルの応答を待機中…",
+  "Thinking…": "思考中…",
+  "Retrying…": "再試行中…",
+  "Rate limited; waiting to retry…": "リクエスト制限により再試行を待機中…",
 };

@@ -982,4 +982,10 @@ export const ZH_MESSAGES: Record<string, string> = {
   "How big is your team?": "你的团队有多大？",
   "How did you hear about us?": "你是如何知道我们的？",
   "Welcome to Rakazo": "欢迎使用 Rakazo",
+  "Connecting…": "正在连接…",
+  "Restoring session…": "正在恢复会话…",
+  "Waiting for model…": "等待模型响应…",
+  "Thinking…": "思考中…",
+  "Retrying…": "正在重试…",
+  "Rate limited; waiting to retry…": "请求受限，等待重试…",
 };

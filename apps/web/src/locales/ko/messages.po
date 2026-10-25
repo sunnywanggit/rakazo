@@ -5612,3 +5612,23 @@ msgstr "음성 서비스 크레딧이 모두 소진되었습니다."
 #: src/lib/user-error.ts
 msgid "Your voice provider key was rejected."
 msgstr "음성 서비스에서 키를 거부했습니다."
+
+#: src/pages/shell/transcript.tsx
+msgid "Restoring session…"
+msgstr "세션 복원 중…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Waiting for model…"
+msgstr "모델 응답 대기 중…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Thinking…"
+msgstr "생각 중…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Retrying…"
+msgstr "재시도 중…"
+
+#: src/pages/shell/transcript.tsx
+msgid "Rate limited; waiting to retry…"
+msgstr "요청 제한으로 재시도 대기 중…"

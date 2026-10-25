@@ -8,6 +8,7 @@ import {
   isPeerReceiptBlocks,
   liveActivityLine,
   liveMessageComposing,
+  localAgentProgressLabel,
   projectBotMentions,
   projectMessageReactions,
   timeSeparatorIds,
@@ -172,7 +173,15 @@ export const Transcript = memo(function Transcript({
   );
   const separatorIds = timeSeparatorIds(shownMessages);
   const unreadDividerId = unreadDividerMessageId(shownMessages, unreadAfterSeq, olderCursor);
-  const workingLabel = liveActivityLine(messages) ?? t`Working…`;
+  const workingLabel =
+    localAgentProgressLabel(liveActivityLine(messages), {
+      connecting: t`Connecting…`,
+      restoring: t`Restoring session…`,
+      waiting: t`Waiting for model…`,
+      thinking: t`Thinking…`,
+      retrying: t`Retrying…`,
+      limited: t`Rate limited; waiting to retry…`,
+    }) ?? t`Working…`;
   const [quoteDraft, setQuoteDraft] = useState<{
     message: ThreadMessage;
     text: string;

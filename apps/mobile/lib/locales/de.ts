@@ -1022,4 +1022,10 @@ export const DE_MESSAGES: Record<string, string> = {
   "How big is your team?": "Wie groß ist dein Team?",
   "How did you hear about us?": "Wie hast du von uns erfahren?",
   "Welcome to Rakazo": "Willkommen bei Rakazo",
+  "Connecting…": "Verbindung wird hergestellt…",
+  "Restoring session…": "Sitzung wird wiederhergestellt…",
+  "Waiting for model…": "Warten auf das Modell…",
+  "Thinking…": "Denkt nach…",
+  "Retrying…": "Erneuter Versuch…",
+  "Rate limited; waiting to retry…": "Anfragelimit erreicht; erneuter Versuch folgt…",
 };

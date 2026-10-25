@@ -122,6 +122,20 @@ describe("response streaming preference", () => {
 });
 
 describe("reduceLiveMessageBlocks", () => {
+  it("keeps status snapshots separate from cumulative body deltas", () => {
+    let blocks = reduceLiveMessageBlocks([], { type: "progress", payload: { delta: "first" } });
+    for (const text of ["Waiting for model…", "Public summary", "Retrying…"])
+      blocks = reduceLiveMessageBlocks(blocks, {
+        type: "progress",
+        payload: { text, activity: true },
+      });
+    expect(blocks).toEqual([
+      { kind: "progress", text: "first" },
+      { kind: "progress", text: "Retrying…", activity: true },
+    ]);
+    blocks = reduceLiveMessageBlocks(blocks, { type: "progress", payload: { delta: " second" } });
+    expect(blocks).toEqual([{ kind: "progress", text: "first second" }]);
+  });
   it("preserves structured live activity markers", () => {
     expect(
       reduceLiveMessageBlocks([], {
