@@ -41,6 +41,12 @@ verify-report
 design/
 PRODUCT_PLAN.md
 
+# Keep this reviewed design public; other design files remain ignored.
+!/ai-workflow/sdd/changes/local-agent-codex/design/
+/ai-workflow/sdd/changes/local-agent-codex/design/*
+!/ai-workflow/sdd/changes/local-agent-codex/design/INDEX.md
+!/ai-workflow/sdd/changes/local-agent-codex/design/local-agent-codex.md
+
 # Lingui compiled catalogs — Vite plugin compiles .po at build time
 apps/web/src/locales/**/*.mjs
 apps/web/src/locales/**/*.js
