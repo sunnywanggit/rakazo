@@ -140,6 +140,8 @@ export type SpaceSource =
   | "messages"
   | "events"
   | "memory_documents"
+  | "local_agent_runs"
+  | "local_agent_interactions"
   | "memory_revisions";
 
 export interface SpaceKeyStore {
@@ -169,6 +171,8 @@ export const ROW_OWNER: Record<SpaceSource, string> = {
   events: "threadId",
   memory_documents: "userId",
   memory_revisions: "documentId",
+  local_agent_runs: "threadId",
+  local_agent_interactions: "threadId",
 };
 
 export interface Queryable {
@@ -177,6 +181,8 @@ export interface Queryable {
 
 const COLUMNS = `id, "spaceId", version, "masterKeyId", "wrappedKey"`;
 const ROW_CONTEXT: Record<SpaceSource, string> = {
+  local_agent_runs: `SELECT "spaceId", "threadId" AS owner FROM local_agent_runs WHERE id = $1`,
+  local_agent_interactions: `SELECT "spaceId", "threadId" AS owner FROM local_agent_interactions WHERE id = $1`,
   threads: `SELECT "spaceId", "userId" AS owner FROM threads WHERE id = $1`,
   events: `SELECT "spaceId", "threadId" AS owner FROM events WHERE id = $1`,
   memory_documents: `SELECT "spaceId", "userId" AS owner FROM memory_documents WHERE id = $1`,

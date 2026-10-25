@@ -8,6 +8,7 @@ export interface LocalAgentEngine {
     request: LocalAgentStart;
     cwd: string;
     sessionRef?: string;
+    signal?: AbortSignal;
     session: (reference: string) => Promise<void>;
     emit: (event: LocalAgentEvent) => Promise<void>;
   }): Promise<LocalAgentExecution>;

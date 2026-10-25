@@ -111,6 +111,12 @@ import {
   IntegrationProviderConfigSchema,
   IntegrationSetupStateSchema,
 } from "./integration-settings.js";
+import {
+  LocalAgentCapabilitiesSchema,
+  LocalAgentSettingsSchema,
+  LocalAgentTargetSchema,
+  LocalAgentUserDecisionSchema,
+} from "./local-agent.js";
 import { ModelHeadersSchema } from "./model-headers.js";
 import { MessageReactionSchema } from "./reactions.js";
 import { RoutineWatchSchema } from "./routine-watch.js";
@@ -180,6 +186,27 @@ const threadSendInput = threadTarget
 const spaceName = z.string().trim().min(1).max(60);
 
 export const appContract = {
+  localAgent: {
+    settings: oc.input(z.object({ botId: Id })).output(LocalAgentSettingsSchema),
+    connect: oc
+      .input(
+        z.object({
+          botId: Id,
+          name: z.string().trim().min(1).max(100),
+          endpoint: z.string().url().max(2_048),
+          token: z.string().regex(/^[a-f0-9]{64}$/),
+        }),
+      )
+      .output(z.object({ id: Id })),
+    inspect: oc.input(z.object({ connectionId: Id })).output(LocalAgentCapabilitiesSchema),
+    setTarget: oc
+      .input(z.object({ botId: Id, target: LocalAgentTargetSchema.nullable() }))
+      .output(z.object({ ok: z.literal(true) })),
+    revoke: oc.input(z.object({ connectionId: Id })).output(z.object({ ok: z.literal(true) })),
+    respond: oc
+      .input(z.object({ interactionId: Id, messageId: Id, ...LocalAgentUserDecisionSchema.shape }))
+      .output(z.object({ ok: z.literal(true) })),
+  },
   analytics: { screen: oc.input(AnalyticsScreenInput).output(z.object({ ok: z.literal(true) })) },
   aiConsent: {
     status: oc.input(AiConsentQuerySchema).output(AiConsentStatusSchema),

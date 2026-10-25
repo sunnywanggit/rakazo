@@ -2763,6 +2763,9 @@ export interface ExecutorDeps {
   prisma: PrismaClient;
   events: ThreadEvents;
   runtime: AgentRuntime;
+  localAgent?: {
+    continueRun(runId: string, workerId: string, onRunStarted?: () => void): Promise<boolean>;
+  };
   sandbox: SandboxProvider;
   memory: MemoryStore;
   memoryProviders: MemoryProviderResolver;
@@ -3606,6 +3609,8 @@ export function createRunExecutor(deps: ExecutorDeps) {
     },
 
     async continueRun(runId: string, workerId: string, onRunStarted?: () => void) {
+      if (deps.localAgent && (await deps.localAgent.continueRun(runId, workerId, onRunStarted)))
+        return;
       const run = await deps.prisma.run.findUnique({ where: { id: runId } });
       if (!run) return;
       // Logs and security events raised by this run's tools name its account and space.

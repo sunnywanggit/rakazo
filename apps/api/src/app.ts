@@ -58,6 +58,7 @@ import {
   isComposioEnabled,
   isMessagingSurfaceEnabled,
   isPipedreamEnabled,
+  LocalAgentCoordinator,
   McpConnector,
   McpOAuthBroker,
   messagingPlatformsFromEnv,
@@ -534,7 +535,17 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   // One cache serves models.list, selection validation, and run-time model
   // resolution alike, so a list call warms the run path in this process.
   const codexCatalog = new CodexCatalogCache();
+  const localAgent = new LocalAgentCoordinator({
+    prisma,
+    secrets,
+    events,
+    jobs,
+    allowedOrigins: env.localAgentAllowedOrigins ?? [],
+    shutdownSignal: shutdown.signal,
+  });
+  let stopLocalAgentReconciler = () => {};
   const executor = createRunExecutor({
+    localAgent,
     billingEnabled: modelCreditsEnabled,
     maxUploadSizeBytes: env.maxUploadSizeBytes,
     contextStrategy,
@@ -625,6 +636,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       })
     : undefined;
   reconciler?.start();
+  if (inMemoryJobs) stopLocalAgentReconciler = localAgent.startReconciler();
 
   const router = createRouter({
     analytics,
@@ -659,6 +671,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       openSignup: env.messagingOpenSignup,
     },
     env: {
+      localAgentAllowedOrigins: env.localAgentAllowedOrigins,
       phoneCallsEnabled: env.phoneCallsEnabled,
       phoneCallRingSeconds: env.phoneCallRingSeconds,
       ticketBoardEnabled,
@@ -1129,6 +1142,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     awaitIdle: inMemoryJobs ? () => inMemoryJobs.awaitIdle() : undefined,
     backgroundFailures: inMemoryJobs ? () => inMemoryJobs.failureCounts() : undefined,
     stop: async () => {
+      stopLocalAgentReconciler();
       // Abort in-flight continueRun boot waits before draining jobs so stop() cannot sit
       // on waitForComputerReady for the full boot-wait window during shared Postgres journeys.
       auth.disposeOidcDiscovery();

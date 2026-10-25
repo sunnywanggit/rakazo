@@ -1,6 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { JobPublisher, JobWorkerHost } from "@rakazo/adapter-kit";
-import { ComposioConnector, IntegrationProviderSettings } from "@rakazo/adapters";
+import {
+  ComposioConnector,
+  IntegrationProviderSettings,
+  LocalAgentCoordinator,
+  localAgentAllowedOrigins,
+} from "@rakazo/adapters";
 import { phoneCallSettings } from "@rakazo/core";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import { startWorkerHealth } from "./health.js";
@@ -125,6 +130,7 @@ async function main() {
   const ticketBoardEnabled = process.env.TICKET_BOARD_ENABLED === "true";
   const boardEvents = createBoardEvents(realtime);
   const dataDir = process.env.DATA_DIR ?? "./data";
+  const shutdown = new AbortController();
   const runtime =
     process.env.AGENT_RUNTIME === "scripted"
       ? new ScriptedAgentRuntime()
@@ -216,7 +222,17 @@ async function main() {
     jobs,
     accessToken: process.env.EXPO_ACCESS_TOKEN,
   });
+  const localAgent = new LocalAgentCoordinator({
+    prisma,
+    secrets,
+    events,
+    jobs,
+    allowedOrigins: localAgentAllowedOrigins(process.env.LOCAL_AGENT_ALLOWED_ORIGINS),
+    shutdownSignal: shutdown.signal,
+  });
+  let stopLocalAgentReconciler = () => {};
   const executor = createRunExecutor({
+    localAgent,
     maxUploadSizeBytes: uploadSizeFromEnv(process.env),
     prisma,
     runtime,
@@ -313,12 +329,12 @@ async function main() {
     reconcileHomeStorage: homeStorageSweeper(home),
   });
   let stopHealth: (() => Promise<void>) | undefined;
-  const shutdown = new AbortController();
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
     shutdown.abort();
+    stopLocalAgentReconciler();
     try {
       await stopHealth?.();
       await reconciler.stop();
@@ -373,6 +389,7 @@ async function main() {
   }
   if (stopping) return;
   reconciler.start();
+  stopLocalAgentReconciler = localAgent.startReconciler();
   stopHealth = startWorkerHealth(reconciler.lastCompletedAt);
 
   logger.info("worker ready", { degraded: secrets.describe().capabilities.degraded ?? false });

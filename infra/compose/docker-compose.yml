@@ -203,6 +203,7 @@ x-app-environment: &app-environment
   MCP_STDIO_IDLE_MS:
   MCP_DISCOVERY_TIMEOUT_MS:
   MCP_PACKAGES_DIR:
+  LOCAL_AGENT_ALLOWED_ORIGINS:
   MCP_ALLOW_PRIVATE_ENDPOINT:
   # Messaging (outbound delivery runs in the worker)
   MESSAGING_OPEN_SIGNUP:

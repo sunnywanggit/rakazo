@@ -12,6 +12,11 @@ export const LocalAgentScopeSchema = z.strictObject({
   threadId: id,
 });
 export const LocalAgentAccessSchema = z.enum(["read", "write"]);
+export const LocalAgentCancelSchema = z.strictObject({
+  scope: LocalAgentScopeSchema,
+  runId: id,
+  projectId: id,
+});
 export const LocalAgentStartSchema = z.strictObject({
   scope: LocalAgentScopeSchema,
   runId: id,
@@ -85,3 +90,20 @@ export type LocalAgentEnvelope = z.infer<typeof LocalAgentEnvelopeSchema>;
 export type LocalAgentDecision = z.infer<typeof LocalAgentDecisionSchema>;
 export type LocalAgentInteraction = z.infer<typeof LocalAgentInteractionSchema>;
 export type LocalAgentCapabilities = z.infer<typeof LocalAgentCapabilitiesSchema>;
+
+export const LocalAgentTargetSchema = z.strictObject({
+  connectionId: id,
+  projectId: id,
+  model: z.string().min(1).max(200),
+  access: LocalAgentAccessSchema,
+});
+export const LocalAgentUserDecisionSchema = LocalAgentDecisionSchema.omit({ fence: true });
+export const LocalAgentSettingsSchema = z.strictObject({
+  enabled: z.boolean(),
+  allowedOrigins: z.array(z.string()),
+  connections: z.array(
+    z.strictObject({ id, name: z.string(), endpoint: z.string(), enabled: z.boolean() }),
+  ),
+  target: LocalAgentTargetSchema.nullable(),
+  pairing: z.strictObject({ spaceId: id, userId: id, botId: id }),
+});

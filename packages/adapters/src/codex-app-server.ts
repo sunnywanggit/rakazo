@@ -356,10 +356,16 @@ export class CodexAppServerEngine implements LocalAgentEngine {
     const finish = (status?: "completed" | "cancelled") => {
       if (settled) return;
       settled = true;
+      input.signal?.removeEventListener("abort", abort);
       if (status) resolve(status);
       else reject(new Error("Codex turn did not complete"));
       rpc.close();
     };
+    const abort = () => {
+      stopping = true;
+      finish("cancelled");
+    };
+    input.signal?.addEventListener("abort", abort, { once: true });
     const handle = async (message: Rpc) => {
       const p = message.params ?? {};
       if (message.id !== undefined && message.method) {
@@ -453,6 +459,7 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       () => finish(stopping ? "cancelled" : undefined),
     );
     try {
+      input.signal?.throwIfAborted();
       const selection = {
         cwd: input.cwd,
         model: input.request.model,
@@ -478,6 +485,7 @@ export class CodexAppServerEngine implements LocalAgentEngine {
         throw new Error("Codex resolved policy mismatch");
       threadId = started.thread.id;
       await input.session(threadId!);
+      input.signal?.throwIfAborted();
       const turn = await rpc.request("turn/start", {
         threadId,
         input: [{ type: "text", text: input.request.prompt }],

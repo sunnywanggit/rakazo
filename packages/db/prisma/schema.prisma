@@ -22,6 +22,11 @@ model AiDataConsent {
 }
 
 model User {
+  localAgentConnections LocalAgentConnection[]
+  localAgentTargets LocalAgentTarget[]
+  localAgentSessions LocalAgentSession[]
+  localAgentRuns LocalAgentRun[]
+  localAgentInteractions LocalAgentInteraction[]
   aiDataConsents AiDataConsent[]
   id                          String                       @id
   name                        String
@@ -249,6 +254,11 @@ model Member {
 }
 
 model Space {
+  localAgentConnections LocalAgentConnection[]
+  localAgentTargets LocalAgentTarget[]
+  localAgentSessions LocalAgentSession[]
+  localAgentRuns LocalAgentRun[]
+  localAgentInteractions LocalAgentInteraction[]
   aiDataConsents              AiDataConsent[]
   id                          String                       @id
   organizationId              String
@@ -481,6 +491,8 @@ model SpaceVoicePreference {
 }
 
 model Bot {
+  localAgentTarget LocalAgentTarget?
+  localAgentSessions LocalAgentSession[]
   screenGeneration Int @default(0)
   id                String            @id @default(cuid())
   spaceId           String
@@ -615,6 +627,9 @@ model ChatGroupMember {
 }
 
 model Thread {
+  localAgentSessions LocalAgentSession[]
+  localAgentRuns LocalAgentRun[]
+  localAgentInteractions LocalAgentInteraction[]
   id                          String     @id @default(cuid())
   spaceId                     String
   space                       Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
@@ -713,6 +728,7 @@ model Task {
 }
 
 model Run {
+  localAgentRun LocalAgentRun?
   id                   String            @id @default(cuid())
   spaceId              String
   space                Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
@@ -1254,6 +1270,7 @@ model SpaceMemoryConfig {
 }
 
 model Secret {
+  localAgentConnections LocalAgentConnection[]
   id                String             @id @default(cuid())
   userId            String
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1689,4 +1706,101 @@ model ModelCreditLot {
   @@index([organizationId, expiresAt])
   // Partial indexes for outstanding grants are managed in SQL migrations.
   @@map("model_credit_lots")
+}
+
+
+/// Optional host-side agent connections. Credentials use the shared SecretStore.
+model LocalAgentConnection {
+  id String @id @default(cuid())
+  spaceId String
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  endpoint String
+  secretId String
+  secret Secret @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  enabled Boolean @default(true)
+  targets LocalAgentTarget[]
+  sessions LocalAgentSession[]
+  createdAt DateTime @default(now())
+  @@index([spaceId, userId])
+  @@map("local_agent_connections")
+}
+
+model LocalAgentTarget {
+  revision String @default(cuid())
+  botId String @id
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  spaceId String
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId String
+  connection LocalAgentConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  projectId String
+  model String
+  access String @default("read")
+  @@index([spaceId, userId])
+  @@map("local_agent_targets")
+}
+
+model LocalAgentSession {
+  id String @id @default(cuid())
+  spaceId String
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botId String
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  threadId String
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  connectionId String
+  connection LocalAgentConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  projectId String
+  model String
+  access String
+  generation String @default("")
+  runs LocalAgentRun[]
+  @@unique([spaceId, userId, botId, threadId, connectionId, projectId, model, access, generation], map: "local_agent_session_scope")
+  @@map("local_agent_sessions")
+}
+
+model LocalAgentRun {
+  id String @id
+  run Run @relation(fields: [id], references: [id], onDelete: Cascade)
+  spaceId String
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId String
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sessionId String
+  session LocalAgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  request String @db.Text
+  output String @default("") @db.Text
+  cursor Int @default(0)
+  hostFence Int @default(0)
+  terminalStatus String?
+  interactions LocalAgentInteraction[]
+  @@index([spaceId, userId])
+  @@map("local_agent_runs")
+}
+
+model LocalAgentInteraction {
+  id String @id
+  spaceId String
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId String
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  runId String
+  run LocalAgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  payload String @db.Text
+  decision String? @db.Text
+  status String @default("pending")
+  expiresAt DateTime
+  @@index([spaceId, userId, runId, status])
+  @@map("local_agent_interactions")
 }

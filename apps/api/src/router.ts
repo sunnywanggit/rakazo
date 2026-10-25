@@ -53,6 +53,7 @@ import {
   CodexCatalogCache,
   ComputerBusyError,
   cancelComputerRunWork,
+  cancelLocalAgentRuns,
   checkpointAndRecordComputerWorkspace,
   clearInactiveUserComputerControl,
   codexLiveCatalogsForSpace,
@@ -62,6 +63,7 @@ import {
   computerSupportsTerminal,
   computerSupportsUpdate,
   computerUpdateView,
+  connectLocalAgent,
   createFaviconResolver,
   createTicket,
   defaultCatalogModelId,
@@ -84,6 +86,8 @@ import {
   listBotSecretMetadata,
   listPiCatalog,
   listScratchpadItems,
+  localAgentConnectionClient,
+  localAgentSettings,
   McpOAuthBroker,
   mapScratchpadItem,
   mcpServerHealthDto,
@@ -126,6 +130,7 @@ import {
   scriptedCatalogEntry,
   selectDefaultCredentialId,
   serializeModelSecret,
+  setLocalAgentTarget,
   settleCallRequest,
   stableStringify,
   storeBotSecret,
@@ -170,6 +175,8 @@ import {
   foldComputerCommands,
   isDeletableMemoryDocument,
   isOllamaCloudBaseUrl,
+  LocalAgentInteractionSchema,
+  LocalAgentUserDecisionSchema,
   mcpOAuthEnvReferences,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   parseTicketRef,
@@ -722,6 +729,7 @@ export interface RouterDeps {
     sandboxProvider: string;
     gitSha?: string;
     integrationsCatalogUrl?: string;
+    localAgentAllowedOrigins?: string[];
     mcpAllowPrivateEndpoint?: boolean;
     desktopHostChoiceEnabled?: boolean;
   };
@@ -982,6 +990,11 @@ export function createRouter(deps: RouterDeps) {
     phoneCallsEnabled: deps.env?.phoneCallsEnabled,
     phoneCallRingSeconds: deps.env?.phoneCallRingSeconds,
   });
+  const localAgentDeps = {
+    prisma: deps.prisma,
+    secrets: deps.secrets,
+    allowedOrigins: deps.env.localAgentAllowedOrigins ?? [],
+  };
   const onboardingDeps = { prisma: deps.prisma, events: deps.events, connectors: deps.connectors };
   const mcpOAuth = deps.mcpOAuth ?? new McpOAuthBroker(deps.prisma, deps.secrets);
   const mcpAwaitsOAuth = async (server: McpServerRow, actor: Actor, oauth: McpOAuthSummary) => {
@@ -1998,6 +2011,105 @@ export function createRouter(deps: RouterDeps) {
         return { ok: true as const };
       }),
     },
+    localAgent: {
+      settings: authed.localAgent.settings.handler(({ context, input }) =>
+        localAgentSettings(localAgentDeps, context.actor, input.botId),
+      ),
+      connect: authed.localAgent.connect.handler(async ({ context, input }) => {
+        try {
+          return await connectLocalAgent(localAgentDeps, context.actor, input);
+        } catch {
+          throw new ORPCError("BAD_REQUEST", { message: "Could not connect to the local agent" });
+        }
+      }),
+      inspect: authed.localAgent.inspect.handler(async ({ context, input }) => {
+        const client = await localAgentConnectionClient(
+          localAgentDeps,
+          context.actor,
+          input.connectionId,
+        );
+        try {
+          return await client.capabilities();
+        } finally {
+          await client.close();
+        }
+      }),
+      setTarget: authed.localAgent.setTarget.handler(async ({ context, input }) => {
+        await setLocalAgentTarget(localAgentDeps, context.actor, input.botId, input.target);
+        return { ok: true as const };
+      }),
+      revoke: authed.localAgent.revoke.handler(async ({ context, input }) => {
+        const connection = await deps.prisma.localAgentConnection.findFirst({
+          where: {
+            id: input.connectionId,
+            spaceId: context.actor.spaceId,
+            userId: context.actor.userId,
+          },
+        });
+        if (!connection) throw new IsolationError();
+        await deps.prisma.localAgentConnection.update({
+          where: { id: connection.id },
+          data: { enabled: false },
+        });
+        await cancelLocalAgentRuns(localAgentDeps, context.actor, { connectionId: connection.id });
+        const targets = await deps.prisma.localAgentTarget.findMany({
+          where: {
+            connectionId: connection.id,
+            spaceId: context.actor.spaceId,
+            userId: context.actor.userId,
+          },
+        });
+        for (const target of targets)
+          await stopThreadRuns(
+            deps,
+            context.actor,
+            await resolveThreadTarget(deps.prisma, context.actor, { botId: target.botId }),
+          );
+        return { ok: true as const };
+      }),
+      respond: authed.localAgent.respond.handler(async ({ context, input }) => {
+        const interaction = await deps.prisma.localAgentInteraction.findFirst({
+          where: {
+            id: input.interactionId,
+            spaceId: context.actor.spaceId,
+            userId: context.actor.userId,
+          },
+          include: { run: { include: { session: { include: { connection: true } } } } },
+        });
+        if (!interaction?.run.session.connection.enabled) throw new IsolationError();
+        const decision = LocalAgentUserDecisionSchema.parse({
+          decision: input.decision,
+          ...(input.answers ? { answers: input.answers } : {}),
+        });
+        const value = JSON.stringify(decision);
+        if (interaction.status === "decided" || interaction.status === "delivered") {
+          if (interaction.decision !== value) throw new ORPCError("CONFLICT");
+          await deps.jobs.enqueue(runContinueJob(interaction.runId));
+          return { ok: true as const };
+        }
+        const payload = LocalAgentInteractionSchema.parse(JSON.parse(interaction.payload));
+        if (
+          (payload.kind === "approval" && decision.decision === "answer") ||
+          (payload.kind === "question" && decision.decision === "allow") ||
+          (decision.decision === "answer" &&
+            payload.questions?.some((question) => !decision.answers?.[question.id]))
+        )
+          throw new ORPCError("BAD_REQUEST");
+        const ok = await deps.events.answerRunInput({
+          spaceId: context.actor.spaceId,
+          threadId: interaction.threadId,
+          runId: interaction.runId,
+          messageId: input.messageId,
+          answeredByUserId: context.actor.userId,
+          answer:
+            decision.decision === "answer" ? JSON.stringify(decision.answers) : decision.decision,
+          runtimeDecision: { id: interaction.id, value },
+        });
+        if (!ok) throw new ORPCError("CONFLICT", { message: "Local request expired" });
+        await deps.jobs.enqueue(runContinueJob(interaction.runId));
+        return { ok: true as const };
+      }),
+    },
     bots: {
       list: authed.bots.list.handler(async ({ context }) => repos.listBots(context.actor)),
       listArchived: authed.bots.listArchived.handler(async ({ context }) =>
@@ -2240,6 +2352,7 @@ export function createRouter(deps: RouterDeps) {
       }),
       archive: authed.bots.archive.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        await cancelLocalAgentRuns(localAgentDeps, context.actor, { botId: bot.id });
         await archiveBot(
           {
             prisma: deps.prisma,
@@ -2274,6 +2387,7 @@ export function createRouter(deps: RouterDeps) {
       }),
       remove: authed.bots.remove.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        await cancelLocalAgentRuns(localAgentDeps, context.actor, { botId: bot.id });
         await destroyBot(
           {
             prisma: deps.prisma,
@@ -2567,7 +2681,17 @@ export function createRouter(deps: RouterDeps) {
         }
       }),
       send: authed.threads.send.handler(async ({ context, input }) => {
-        if ((await modelSetup(deps, context.actor)).needsModel) {
+        const nativeTarget =
+          localAgentDeps.allowedOrigins.length > 0 &&
+          input.botId &&
+          (await deps.prisma.localAgentTarget.findFirst({
+            where: {
+              botId: input.botId,
+              userId: context.actor.userId,
+              spaceId: context.actor.spaceId,
+            },
+          }));
+        if (!nativeTarget && (await modelSetup(deps, context.actor)).needsModel) {
           throw new ORPCError("BAD_REQUEST", { message: MODEL_REQUIRED_SEND_ERROR });
         }
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
@@ -2612,6 +2736,7 @@ export function createRouter(deps: RouterDeps) {
       }),
       stop: authed.threads.stop.handler(async ({ context, input }) => {
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
+        await cancelLocalAgentRuns(localAgentDeps, context.actor, { threadId: target.threadId });
         await stopThreadRuns(deps, context.actor, target);
         return { ok: true as const };
       }),
@@ -2619,6 +2744,7 @@ export function createRouter(deps: RouterDeps) {
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
         const contextBotId = target.kind === "bot" ? target.botId : target.memberBotIds[0];
         if (!contextBotId) throw new IsolationError();
+        await cancelLocalAgentRuns(localAgentDeps, context.actor, { threadId: target.threadId });
         const { cancelledRunIds, historyCompactionGeneration } = await deps.events.clearThread({
           spaceId: context.actor.spaceId,
           threadId: target.threadId,

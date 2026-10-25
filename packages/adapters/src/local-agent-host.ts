@@ -7,6 +7,7 @@ import path from "node:path";
 import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit";
 import type { LocalAgentDecision, LocalAgentEnvelope, LocalAgentStart } from "@rakazo/contracts";
 import {
+  LocalAgentCancelSchema,
   LocalAgentDecisionSchema,
   LocalAgentEnvelopeSchema,
   LocalAgentStartSchema,
@@ -130,6 +131,11 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
   const runs = new Map<string, RunRecord>();
   const executions = new Map<string, LocalAgentExecution>();
   const launching = new Set<string>();
+  const controllers = new Map<string, AbortController>();
+  const cancellations = new Map<
+    string,
+    { scope: LocalAgentStart["scope"]; runId: string; projectId: string }
+  >();
   const launches = new Set<Promise<void>>();
   let closed = false;
   const bus = new EventEmitter();
@@ -143,7 +149,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     return result;
   };
   const save = (record: RunRecord) => privateWrite(fileOf(record.request.runId), record);
-  const authorized = (request: LocalAgentStart) =>
+  const authorized = (request: Pick<LocalAgentStart, "scope" | "projectId">) =>
     options.bindings.some(
       (binding) =>
         binding.spaceId === request.scope.spaceId &&
@@ -190,6 +196,13 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
   };
   // A process cannot survive a host restart with a trustworthy pending RPC request.
   for (const name of await readdir(options.root)) {
+    if (/^cancel-[a-f0-9]{64}\.json$/.test(name)) {
+      const cancellation = LocalAgentCancelSchema.parse(
+        await readLocalAgentPrivateFile(path.join(options.root, name)),
+      );
+      cancellations.set(cancellation.runId, cancellation);
+      continue;
+    }
     if (!/^run-[a-f0-9]{64}\.json$/.test(name)) continue;
     const value = (await readLocalAgentPrivateFile(path.join(options.root, name))) as RunRecord;
     value.request = LocalAgentStartSchema.parse(value.request);
@@ -207,6 +220,8 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
   const launch = async (record: RunRecord) => {
     const id = record.request.runId;
     launching.add(id);
+    const controller = new AbortController();
+    controllers.set(id, controller);
     try {
       const project = projects.get(record.request.projectId)!;
       // Re-resolve immediately before execution, rejecting a replaced project symlink.
@@ -224,6 +239,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
         request: record.request,
         cwd: project.root,
         sessionRef,
+        signal: controller.signal,
         session: (reference) => privateWrite(sessionFile, { reference }),
         emit: (event) => exclusive(() => append(record, event)),
       });
@@ -245,6 +261,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       );
     } finally {
       launching.delete(id);
+      controllers.delete(id);
       executions.delete(id);
     }
   };
@@ -277,6 +294,41 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     };
     try {
       const url = new URL(request.url ?? "/", "http://local.invalid");
+      if (request.method === "POST" && url.pathname === "/v1/cancellations") {
+        const parsed = LocalAgentCancelSchema.safeParse(await body(request));
+        if (!parsed.success || !authorized(parsed.data))
+          throw new HostError(403, "Cancellation is not authorized");
+        const cancellation = parsed.data;
+        const record = await exclusive(async () => {
+          const record = runs.get(cancellation.runId);
+          if (
+            record &&
+            (JSON.stringify(record.request.scope) !== JSON.stringify(cancellation.scope) ||
+              record.request.projectId !== cancellation.projectId)
+          )
+            throw new HostError(403, "Cancellation binding changed");
+          if (
+            cancellations.size >= (options.maxRuns ?? 128) &&
+            !cancellations.has(cancellation.runId)
+          )
+            throw new HostError(429, "Cancellation capacity reached");
+          await privateWrite(
+            path.join(options.root, `cancel-${digest(cancellation.runId)}.json`),
+            cancellation,
+          );
+          cancellations.set(cancellation.runId, cancellation);
+          controllers.get(cancellation.runId)?.abort();
+          if (record) await append(record, { type: "terminal", status: "cancelled" });
+          return record;
+        });
+        await executions.get(cancellation.runId)?.cancel();
+        json(
+          record
+            ? statusOf(record)
+            : { runId: cancellation.runId, status: "cancelled", sequence: 0, interaction: null },
+        );
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/v1/capabilities") {
         json({
           protocol: 1,
@@ -325,7 +377,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
                     (other.request.access === "write" || input.access === "write"))),
             )
           )
-            throw new HostError(409, "Local session or project is busy");
+            throw new HostError(423, "Local session or project is busy");
           const next: RunRecord = {
             request: input,
             hash,
@@ -334,6 +386,16 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
             decisions: {},
             expires: Date.now() + (options.leaseMs ?? 90_000),
           };
+          const cancelled = cancellations.get(input.runId);
+          if (cancelled) {
+            if (
+              JSON.stringify(cancelled.scope) !== JSON.stringify(input.scope) ||
+              cancelled.projectId !== input.projectId
+            )
+              throw new HostError(403, "Cancellation binding changed");
+            next.status = "cancelled";
+            next.events = [{ sequence: 1, event: { type: "terminal", status: "cancelled" } }];
+          }
           await save(next);
           runs.set(input.runId, next);
           return next;
@@ -398,6 +460,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
           }
         });
       } else if (match[2] === "cancel") {
+        controllers.get(record.request.runId)?.abort();
         await executions.get(record.request.runId)?.cancel();
         await exclusive(() => append(record, { type: "terminal", status: "cancelled" }));
       } else if (match[2] === "interactions" && match[3]) {
@@ -488,6 +551,7 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
     port: typeof address === "object" && address ? address.port : 0,
     async close() {
       closed = true;
+      for (const controller of controllers.values()) controller.abort();
       clearInterval(watchdog);
       await exclusive(async () => {
         for (const record of runs.values())

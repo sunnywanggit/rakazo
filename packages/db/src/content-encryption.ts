@@ -49,6 +49,18 @@ interface ModelSpec {
 
 /** Further content columns (external messages, steering, skills, …) add an entry here. */
 export const ENCRYPTED_MODELS: Record<string, ModelSpec> = {
+  LocalAgentRun: {
+    table: "local_agent_runs",
+    fields: { request: {}, output: {} },
+    space: { column: "spaceId" },
+    ownerRelation: "thread",
+  },
+  LocalAgentInteraction: {
+    table: "local_agent_interactions",
+    fields: { payload: {}, decision: {} },
+    space: { column: "spaceId" },
+    ownerRelation: "thread",
+  },
   Message: {
     table: "messages",
     fields: { blocks: { plainKeys: MESSAGE_BLOCK_PLAIN_KEYS } },

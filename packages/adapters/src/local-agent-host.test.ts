@@ -225,8 +225,26 @@ describe("local host boundary", () => {
     await f.begin({ ...input, access: "write" });
     expect(
       (await f.call("/v1/runs", { ...input, runId: "second", sessionId: "second" })).status,
-    ).toBe(409);
+    ).toBe(423);
     expect(f.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists cancellation before a late worker can start", async () => {
+    const f = await fixture();
+    const { scope, runId, projectId } = input;
+    expect((await f.call("/v1/cancellations", { scope, runId, projectId })).status).toBe(200);
+    expect((await (await f.call("/v1/runs", input)).json()).status).toBe("cancelled");
+    expect(f.start).not.toHaveBeenCalled();
+    await f.close();
+    const restarted = await startLocalAgentHost(f.options);
+    cleanups.push(() => restarted.close());
+    const response = await fetch(`http://127.0.0.1:${restarted.port}/v1/runs`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${f.options.token}` },
+      body: JSON.stringify({ ...input, fence: 2 }),
+    });
+    expect((await response.json()).status).toBe("cancelled");
+    expect(f.start).not.toHaveBeenCalled();
   });
 
   it("bounds retained runs and event data", async () => {

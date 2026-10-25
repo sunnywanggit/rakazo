@@ -230,6 +230,8 @@ export interface AnswerRunInput {
   username?: string;
   /** Turns down a pending secret request; only the run's user can, and nothing is stored. */
   dismiss?: boolean;
+  /** Trusted server-only response path; never accepted from the generic answer RPC. */
+  runtimeDecision?: { id: string; value: string };
 }
 
 /** What request_secret returns to the bot once the user dismissed its card. */
@@ -722,6 +724,25 @@ async function commitAnswerRunInput(
     (block) => block.kind === "ask" && block.status !== "answered",
   );
   if (pendingAsk?.kind !== "ask") return null;
+  if (pendingAsk.runtimeInteractionId) {
+    if (
+      input.runtimeDecision?.id !== pendingAsk.runtimeInteractionId ||
+      run.userId !== input.answeredByUserId
+    )
+      return null;
+    const pending = await tx.localAgentInteraction.findFirst({
+      where: {
+        id: pendingAsk.runtimeInteractionId,
+        spaceId: input.spaceId,
+        userId: input.answeredByUserId,
+        runId: input.runId,
+        status: "pending",
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (!pending) return null;
+  } else if (input.runtimeDecision) return null;
   const approvalAsk = isApprovalAskBlock(pendingAsk);
   const secretAsk = isSecretAskBlock(pendingAsk);
   const choiceAsk = !approvalAsk && !secretAsk && Boolean(pendingAsk.actions?.length);
@@ -957,6 +978,20 @@ async function commitAnswerRunInput(
         }
       : block,
   );
+  if (pendingAsk.runtimeInteractionId && input.runtimeDecision) {
+    const decided = await tx.localAgentInteraction.updateMany({
+      where: {
+        id: pendingAsk.runtimeInteractionId,
+        spaceId: input.spaceId,
+        userId: input.answeredByUserId,
+        runId: input.runId,
+        status: "pending",
+        expiresAt: { gt: new Date() },
+      },
+      data: { decision: input.runtimeDecision.value, status: "decided" },
+    });
+    if (decided.count !== 1) throw new Error("Runtime interaction changed before commit");
+  }
   await tx.message.update({ where: { id: message.id }, data: { blocks } });
   const updated = await appendEventInTransaction(tx, {
     spaceId: input.spaceId,
@@ -1038,7 +1073,9 @@ export async function retireWaitingQuestionInTransaction(
     // Never implicitly dismiss credentials or authorize an external effect, even on a mixed card.
     if (
       pending.some(
-        (block) => block.kind === "ask" && (block.input === "secret" || block.approvalEffectId),
+        (block) =>
+          block.kind === "ask" &&
+          (block.input === "secret" || block.approvalEffectId || block.runtimeInteractionId),
       )
     )
       return false;
@@ -1106,7 +1143,12 @@ export async function answerWaitingRunWithTextInTransaction(
   if (!answer) return null;
   const found = await findPendingAsk(tx, input);
   if (!found) return null;
-  if (isApprovalAskBlock(found.pendingAsk) || isSecretAskBlock(found.pendingAsk)) return null;
+  if (
+    isApprovalAskBlock(found.pendingAsk) ||
+    isSecretAskBlock(found.pendingAsk) ||
+    found.pendingAsk.runtimeInteractionId
+  )
+    return null;
   if (input.messageId !== undefined) {
     if (input.messageId !== found.messageId) return null;
   } else {
@@ -1132,80 +1174,85 @@ export async function answerWaitingRunWithTextInTransaction(
   return commitAnswerRunInput(tx, { ...input, messageId: found.messageId, answer });
 }
 
+export async function pauseRunForInputInTransaction(
+  tx: Prisma.TransactionClient,
+  input: PauseRunForInput,
+) {
+  // Thread row first, then run rows — the same order as clearThread and finalizeRun, so a
+  // concurrent clear cannot deadlock against this transaction.
+  await tx.$queryRaw`SELECT id FROM threads WHERE id = ${input.threadId} FOR UPDATE`;
+  const paused = await tx.run.updateMany({
+    where: {
+      id: input.runId,
+      spaceId: input.spaceId,
+      threadId: input.threadId,
+      botId: input.botId,
+      status: "running",
+      leaseOwner: input.leaseOwner,
+      leaseFence: input.leaseFence,
+    },
+    data: {
+      status: "waiting_input",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      ...(input.offeredActions?.length
+        ? { checkpoint: choiceAskCheckpoint(input.offeredActions) }
+        : {}),
+    },
+  });
+  if (paused.count !== 1) return null;
+  await expireComputerExecutionLeases(tx, { runId: input.runId });
+
+  const attempt = await tx.attempt.updateMany({
+    where: {
+      id: input.attemptId,
+      runId: input.runId,
+      fence: input.leaseFence,
+      status: "running",
+    },
+    data: { status: "waiting_input", finishedAt: new Date() },
+  });
+  if (attempt.count !== 1) throw new Error("Active run attempt was not available to pause");
+
+  const message = await createThreadMessageInTransaction(tx, {
+    threadId: input.threadId,
+    role: "bot",
+    blocks: input.blocks,
+    botId: input.botId,
+    runId: input.runId,
+  });
+  const response = await appendEventInTransaction(tx, {
+    spaceId: input.spaceId,
+    threadId: input.threadId,
+    botId: input.botId,
+    type: "thread.message.created",
+    runId: input.runId,
+    payload: { messageId: message.id, role: "bot", blocks: input.blocks },
+  });
+  const waitingEvent = await appendEventInTransaction(tx, {
+    spaceId: input.spaceId,
+    threadId: input.threadId,
+    botId: input.botId,
+    type: "run.waiting_input",
+    runId: input.runId,
+    payload: {},
+  });
+  await tx.event.deleteMany({ where: { runId: input.runId, type: "thread.progress" } });
+  const continuationRunId = await createPendingSteeringRun(tx, input);
+  return {
+    threadId: waitingEvent.threadId,
+    seq: waitingEvent.seq,
+    continuationRunId,
+    firstResponseRunId: response.firstResponse ? input.runId : undefined,
+  };
+}
+
 export async function pauseRunForInput(
   prisma: PrismaClient,
   input: PauseRunForInput,
   realtime?: RealtimeFanout,
 ): Promise<FinalizeRunResult | false> {
-  const committed = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    // Thread row first, then run rows — the same order as clearThread and finalizeRun, so a
-    // concurrent clear cannot deadlock against this transaction.
-    await tx.$queryRaw`SELECT id FROM threads WHERE id = ${input.threadId} FOR UPDATE`;
-    const paused = await tx.run.updateMany({
-      where: {
-        id: input.runId,
-        spaceId: input.spaceId,
-        threadId: input.threadId,
-        botId: input.botId,
-        status: "running",
-        leaseOwner: input.leaseOwner,
-        leaseFence: input.leaseFence,
-      },
-      data: {
-        status: "waiting_input",
-        leaseOwner: null,
-        leaseExpiresAt: null,
-        ...(input.offeredActions?.length
-          ? { checkpoint: choiceAskCheckpoint(input.offeredActions) }
-          : {}),
-      },
-    });
-    if (paused.count !== 1) return null;
-    await expireComputerExecutionLeases(tx, { runId: input.runId });
-
-    const attempt = await tx.attempt.updateMany({
-      where: {
-        id: input.attemptId,
-        runId: input.runId,
-        fence: input.leaseFence,
-        status: "running",
-      },
-      data: { status: "waiting_input", finishedAt: new Date() },
-    });
-    if (attempt.count !== 1) throw new Error("Active run attempt was not available to pause");
-
-    const message = await createThreadMessageInTransaction(tx, {
-      threadId: input.threadId,
-      role: "bot",
-      blocks: input.blocks,
-      botId: input.botId,
-      runId: input.runId,
-    });
-    const response = await appendEventInTransaction(tx, {
-      spaceId: input.spaceId,
-      threadId: input.threadId,
-      botId: input.botId,
-      type: "thread.message.created",
-      runId: input.runId,
-      payload: { messageId: message.id, role: "bot", blocks: input.blocks },
-    });
-    const waitingEvent = await appendEventInTransaction(tx, {
-      spaceId: input.spaceId,
-      threadId: input.threadId,
-      botId: input.botId,
-      type: "run.waiting_input",
-      runId: input.runId,
-      payload: {},
-    });
-    await tx.event.deleteMany({ where: { runId: input.runId, type: "thread.progress" } });
-    const continuationRunId = await createPendingSteeringRun(tx, input);
-    return {
-      threadId: waitingEvent.threadId,
-      seq: waitingEvent.seq,
-      continuationRunId,
-      firstResponseRunId: response.firstResponse ? input.runId : undefined,
-    };
-  });
+  const committed = await prisma.$transaction((tx) => pauseRunForInputInTransaction(tx, input));
 
   if (!committed) return false;
   await notifyCommittedEvent(

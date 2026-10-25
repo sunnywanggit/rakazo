@@ -2,6 +2,7 @@ import type { TelegramBotCredentials } from "@rakazo/adapters";
 import {
   boatApiKeyFromEnv,
   boatApiUrlFromEnv,
+  localAgentAllowedOrigins,
   mcpStdioOptionsFromEnv,
   resolveCloudAgentProvider,
   resolveDeploymentModel,
@@ -129,6 +130,7 @@ export interface AppEnv {
   /** Package dir, install/startup timeouts and idle reaping for stdio MCP servers. */
   mcpStdio: ReturnType<typeof mcpStdioOptionsFromEnv>;
   /** Deployment-owner escape for remote MCP on RFC1918 / Docker-network hosts. */
+  localAgentAllowedOrigins?: string[];
   mcpAllowPrivateEndpoint: boolean;
   port: number;
   gitSha: string | undefined;
@@ -283,6 +285,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
       .map((value) => value.trim())
       .filter(Boolean),
     mcpStdio: mcpStdioOptionsFromEnv(source),
+    localAgentAllowedOrigins: localAgentAllowedOrigins(source.LOCAL_AGENT_ALLOWED_ORIGINS),
     mcpAllowPrivateEndpoint: source.MCP_ALLOW_PRIVATE_ENDPOINT === "true",
     port: Number(source.API_PORT ?? 3100),
     gitSha: optional(source.GIT_SHA) ?? optional(source.RAKAZO_GIT_SHA),
