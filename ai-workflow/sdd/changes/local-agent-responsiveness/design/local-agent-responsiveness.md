@@ -2,7 +2,7 @@
 
 - Change：`local-agent-responsiveness`
 - Design slug：`local-agent-responsiveness`
-- 状态：方案待用户确认，未实施。
+- 状态：用户已确认，按任务依次实施与验收。
 - 关联设计：[本机 Codex 接入](../../local-agent-codex/design/local-agent-codex.md)。
 
 ## 1. 目标和范围
