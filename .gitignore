@@ -47,6 +47,12 @@ PRODUCT_PLAN.md
 !/ai-workflow/sdd/changes/local-agent-codex/design/INDEX.md
 !/ai-workflow/sdd/changes/local-agent-codex/design/local-agent-codex.md
 
+# Keep the reviewed responsiveness proposal public.
+!/ai-workflow/sdd/changes/local-agent-responsiveness/design/
+/ai-workflow/sdd/changes/local-agent-responsiveness/design/*
+!/ai-workflow/sdd/changes/local-agent-responsiveness/design/INDEX.md
+!/ai-workflow/sdd/changes/local-agent-responsiveness/design/local-agent-responsiveness.md
+
 # Lingui compiled catalogs — Vite plugin compiles .po at build time
 apps/web/src/locales/**/*.mjs
 apps/web/src/locales/**/*.js
