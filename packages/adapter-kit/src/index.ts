@@ -3,6 +3,7 @@ export * from "./background-jobs.js";
 export * from "./billing-errors.js";
 export * from "./cloud-agents.js";
 export * from "./interfaces.js";
+export * from "./local-agent.js";
 export * from "./media-generation.js";
 export * from "./model-errors.js";
 export * from "./registry.js";
