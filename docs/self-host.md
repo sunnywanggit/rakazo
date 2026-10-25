@@ -2024,3 +2024,7 @@ when they next open the app. Remove the archived token files after verifying the
 Restart API and worker processes after both commands finish. A schema-only rollback remains
 compatible with the previous release, but the old code does not read database registrations
 or object-backed artifacts.
+
+## Optional local Codex execution
+
+To route a selected bot to a native project while retaining ordinary bot computers, see [Local Codex execution](local-agent.md). Enable it only after every API and worker has been updated; the connection origin allowlist is empty by default.

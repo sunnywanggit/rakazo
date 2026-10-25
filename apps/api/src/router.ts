@@ -2694,6 +2694,10 @@ export function createRouter(deps: RouterDeps) {
         if (!nativeTarget && (await modelSetup(deps, context.actor)).needsModel) {
           throw new ORPCError("BAD_REQUEST", { message: MODEL_REQUIRED_SEND_ERROR });
         }
+        if (nativeTarget && input.artifactIds?.length)
+          throw new ORPCError("BAD_REQUEST", {
+            message: "Use files in the selected local project",
+          });
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
         if (target.kind === "bot") {
           await assertTeachingSendAllowed(deps.prisma, context.actor.spaceId, target.botId);

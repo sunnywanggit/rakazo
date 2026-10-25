@@ -93,8 +93,27 @@ export function codexLocalArguments(cwd: string, access: "read" | "write", profi
 }
 
 type Rpc = { id?: string | number; method?: string; params?: any; result?: any; error?: unknown };
+// A separate owner survives abrupt host death long enough to kill its private process group.
+// stdin EOF is the ownership lease; the native server and any descendants share this group.
+const SERVER_OWNER = `
+const { spawn } = require('node:child_process');
+const stop = () => { try { process.kill(-process.pid, 'SIGKILL'); } catch { process.exit(1); } };
+const child = spawn(process.argv[1], process.argv.slice(2), { stdio: ['pipe', 'inherit', 'inherit'], shell: false });
+process.stdin.pipe(child.stdin);
+process.stdin.once('end', stop);
+process.stdin.once('error', stop);
+child.stdin.once('error', stop);
+child.once('error', stop);
+child.once('exit', stop);
+process.once('SIGTERM', stop);
+`;
 function connection(executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
-  const { child, tree } = spawnOwnedCommand([executable, ...args], cwd, env);
+  if (process.platform === "win32") throw new Error("Local Codex requires a reviewed POSIX host");
+  const { child, tree } = spawnOwnedCommand(
+    [process.execPath, "-e", SERVER_OWNER, executable, ...args],
+    cwd,
+    env,
+  );
   let sequence = 0;
   let closed = false;
   let onMessage: (message: Rpc) => void = () => undefined;
@@ -200,6 +219,13 @@ async function boundedApproval(
     changes.length > 100
   )
     return false;
+  if (
+    changes.some(
+      (change) => !change || typeof change.path !== "string" || typeof change.diff !== "string",
+    ) ||
+    changes.map((change) => `${change.path}\n${change.diff}`).join("\n").length > 16_000
+  )
+    return false;
   for (const change of changes) {
     if (!inside(cwd, change.path)) return false;
     const relative = path.relative(cwd, change.path);
@@ -291,7 +317,10 @@ export class CodexAppServerEngine implements LocalAgentEngine {
           rpc.close();
           continue;
         }
-        if (disabledFeatures.some((feature) => config?.features?.[feature] !== false))
+        if (
+          config?.web_search !== "disabled" ||
+          disabledFeatures.some((feature) => config?.features?.[feature] !== false)
+        )
           throw new Error("Codex tool features could not be isolated");
         const account = await rpc.request("account/read", { refreshToken: false });
         if (!account.account) throw new Error("Sign in to Codex locally");

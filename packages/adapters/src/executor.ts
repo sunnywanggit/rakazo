@@ -8991,8 +8991,8 @@ async function failRunBeforeTurn(
   }
 }
 
-async function notifyRun(
-  deps: ExecutorDeps,
+export async function notifyRun(
+  deps: Pick<ExecutorDeps, "prisma" | "notifications">,
   run: {
     spaceId: string;
     userId: string;

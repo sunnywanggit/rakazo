@@ -1,17 +1,21 @@
-import type { JobPublisher } from "@rakazo/adapter-kit";
+import type { JobPublisher, NotificationProvider } from "@rakazo/adapter-kit";
 import { runContinueJob } from "@rakazo/adapter-kit";
 import { LocalAgentStartSchema } from "@rakazo/contracts";
 import type { LocalAgentEventOwner, ThreadEvents } from "@rakazo/db";
 import { commitLocalAgentEvent, runAsSystem } from "@rakazo/db";
-import { LocalAgentBusyError } from "./local-agent-client.js";
+import { notifyRun } from "./executor.js";
+import { LocalAgentBusyError, LocalAgentTransportError } from "./local-agent-client.js";
 import { LocalAgentRuntime } from "./local-agent-runtime.js";
 import type { LocalAgentSettingsDeps } from "./local-agent-settings.js";
 import { localAgentConnectionClient } from "./local-agent-settings.js";
+
+class UnsupportedLocalTask extends Error {}
 
 type Deps = LocalAgentSettingsDeps & {
   events: ThreadEvents;
   jobs: JobPublisher;
   shutdownSignal?: AbortSignal;
+  notifications?: NotificationProvider;
 };
 
 /** A separate execution branch keeps native runs out of model credential and Docker orchestration. */
@@ -20,8 +24,11 @@ export class LocalAgentCoordinator {
 
   async continueRun(runId: string, workerId: string, onRunStarted?: () => void): Promise<boolean> {
     const { prisma, events, jobs } = this.deps;
-    const run = await prisma.run.findUnique({
-      where: { id: runId },
+    const run = await prisma.run.findFirst({
+      where: {
+        id: runId,
+        OR: [{ localAgentRun: { isNot: null } }, { bot: { localAgentTarget: { isNot: null } } }],
+      },
       include: {
         bot: { include: { localAgentTarget: true } },
         task: true,
@@ -30,7 +37,7 @@ export class LocalAgentCoordinator {
         sourceMessage: { select: { blocks: true } },
       },
     });
-    if (!run || (!run.localAgentRun && !run.bot.localAgentTarget)) return false;
+    if (!run) return false;
     if (
       ["completed", "failed", "cancelled", "waiting_input", "waiting_takeover"].includes(run.status)
     )
@@ -95,6 +102,7 @@ export class LocalAgentCoordinator {
     let client: Awaited<ReturnType<typeof localAgentConnectionClient>> | undefined;
     let paused = false;
     let leaseLost = false;
+    let transportLost = false;
     let renewing = false;
     const heartbeat = setInterval(() => {
       if (renewing || paused) return;
@@ -109,7 +117,11 @@ export class LocalAgentCoordinator {
           controller.abort();
           return;
         }
-        if (client) await client.heartbeat(runId, claimed.fence);
+        if (client)
+          await client.heartbeat(runId, claimed.fence).catch(() => {
+            transportLost = true;
+            controller.abort();
+          });
       })()
         .catch(() => {
           leaseLost = true;
@@ -127,7 +139,7 @@ export class LocalAgentCoordinator {
         run.bot.userId !== run.userId ||
         run.bot.spaceId !== run.spaceId
       )
-        throw new Error("Local agents require a direct user request");
+        throw new UnsupportedLocalTask("Local agents accept direct chat tasks only");
       const blocks = run.sourceMessage?.blocks;
       if (
         Array.isArray(blocks) &&
@@ -138,7 +150,7 @@ export class LocalAgentCoordinator {
             ["image", "file", "video", "audio"].includes(String((block as { kind?: string }).kind)),
         )
       )
-        throw new Error("Use files in the selected project for local agent tasks");
+        throw new UnsupportedLocalTask("Use files in the selected local project");
       let native = await prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM threads WHERE id = ${run.threadId} FOR UPDATE`;
         if (
@@ -164,6 +176,7 @@ export class LocalAgentCoordinator {
         if (!target) throw new Error("Local execution source is unavailable");
         await tx.$queryRaw`SELECT id FROM local_agent_connections WHERE id = ${target.connectionId} FOR SHARE`;
         if (
+          !existing?.terminalStatus &&
           !(await tx.localAgentConnection.findFirst({
             where: {
               id: target.connectionId,
@@ -251,8 +264,16 @@ export class LocalAgentCoordinator {
                     : "Local agent execution stopped",
               }),
         });
-        if (result && result.continuationRunId)
+        if (result !== false && result.continuationRunId)
           await jobs.enqueue(runContinueJob(result.continuationRunId));
+        if (result)
+          await notifyRun(this.deps, run, {
+            botId: run.botId,
+            threadId: run.threadId,
+            title: run.bot.name,
+            kind: completed ? "completion" : "failure",
+            body: completed ? "Local project task completed" : "Local project task stopped",
+          });
         return true;
       };
       if (await finalize()) return true;
@@ -266,10 +287,27 @@ export class LocalAgentCoordinator {
         fence: claimed.fence,
       });
       const runtime = new LocalAgentRuntime(client);
+      const previousAttempt = run.localAgentRun
+        ? await prisma.attempt.findFirst({
+            where: { runId, fence: { lt: claimed.fence } },
+            orderBy: { fence: "desc" },
+          })
+        : null;
+      if (
+        request.runId !== runId ||
+        request.sessionId !== native.sessionId ||
+        request.scope.spaceId !== run.spaceId ||
+        request.scope.userId !== run.userId ||
+        request.scope.botId !== run.botId ||
+        request.scope.threadId !== run.threadId ||
+        request.projectId !== native.session.projectId
+      )
+        throw new Error("Native binding changed");
       for await (const event of runtime.run(
         {
           ...request,
           cursor: native.cursor,
+          allowCreate: !run.localAgentRun || previousAttempt?.error === "local_project_busy",
           decisions: decisions.flatMap((decision) =>
             decision.decision ? [{ id: decision.id, value: decision.decision }] : [],
           ),
@@ -283,6 +321,13 @@ export class LocalAgentCoordinator {
           await jobs.enqueue(runContinueJob(committed.continuationRunId));
         if (committed.paused) {
           paused = true;
+          await notifyRun(this.deps, run, {
+            botId: run.botId,
+            threadId: run.threadId,
+            title: run.bot.name,
+            kind: "help",
+            body: "Local project needs your input",
+          });
           return true;
         }
       }
@@ -290,32 +335,48 @@ export class LocalAgentCoordinator {
         where: { id: runId },
         include: { session: true },
       });
-      if (!(await finalize())) throw new Error("Local stream ended without a terminal result");
+      if (!(await finalize()))
+        throw new LocalAgentTransportError("Local stream ended without a terminal result");
       return true;
     } catch (error) {
-      if (error instanceof LocalAgentBusyError && !leaseLost) {
-        const wakeAt = new Date(Date.now() + 5_000);
+      const shuttingDown = this.deps.shutdownSignal?.aborted;
+      const busy = error instanceof LocalAgentBusyError;
+      const retryable =
+        (error instanceof LocalAgentTransportError || transportLost) &&
+        (await prisma.attempt.count({ where: { runId, error: "local_transport" } })) < 3;
+      if ((busy || retryable || shuttingDown) && !leaseLost) {
+        const wakeAt = new Date(Date.now() + (shuttingDown ? 0 : 5_000));
         const queued = await prisma.run.updateMany({
           where: { id: runId, status: "running", leaseOwner: workerId, leaseFence: claimed.fence },
           data: { status: "queued", leaseOwner: null, leaseExpiresAt: null, wakeAt },
         });
         await prisma.attempt.updateMany({
           where: { id: claimed.attemptId, status: "running" },
-          data: { status: "failed", finishedAt: new Date() },
+          data: {
+            status: "failed",
+            finishedAt: new Date(),
+            error: busy ? "local_project_busy" : "local_transport",
+          },
         });
-        if (queued.count) await jobs.enqueue({ ...runContinueJob(runId), availableAt: wakeAt });
+        if (queued.count && !shuttingDown)
+          await jobs.enqueue({ ...runContinueJob(runId), availableAt: wakeAt });
         return true;
       }
       // The immutable request remains durable. Never retry it as a fresh model or command job.
-      if (client) await client.cancel(runId, claimed.fence).catch(() => undefined);
-      if (!leaseLost)
-        await events.finalizeRun({
+      if (client && !leaseLost) await client.cancel(runId, claimed.fence).catch(() => undefined);
+      if (!leaseLost) {
+        const settled = await events.finalizeRun({
           ...owner,
           taskId: run.taskId,
           outcome: "failed",
           error:
-            "Local agent unavailable or execution could not be confirmed; the task was not replayed",
+            error instanceof UnsupportedLocalTask
+              ? error.message
+              : "Local agent unavailable or execution could not be confirmed; the task was not replayed",
         });
+        if (settled !== false && settled.continuationRunId)
+          await jobs.enqueue(runContinueJob(settled.continuationRunId));
+      }
       return true;
     } finally {
       clearInterval(heartbeat);

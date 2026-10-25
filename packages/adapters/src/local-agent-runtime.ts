@@ -5,6 +5,7 @@ import type { LocalAgentClient } from "./local-agent-client.js";
 
 export type LocalAgentRuntimeRequest = LocalAgentStart & {
   cursor: number;
+  allowCreate: boolean;
   decisions: Array<{ id: string; value: string }>;
 };
 
@@ -17,20 +18,23 @@ export class LocalAgentRuntime implements AgentRuntime<LocalAgentRuntimeRequest>
       id: "local-agent",
       contractVersion: "1",
       adapterVersion: "0.1.0",
-      capabilities: { streaming: true, compaction: true, tools: true, scripted: false },
+      capabilities: { streaming: true, compaction: false, tools: true, scripted: false },
     };
   }
   async *run(
     request: LocalAgentRuntimeRequest,
     context?: Partial<AdapterContext>,
   ): AsyncIterable<AgentRuntimeEvent> {
-    const { cursor, decisions, ...start } = request;
+    const { cursor, decisions, allowCreate, ...start } = request;
     const controller = new AbortController();
     const signal = context?.signal
       ? AbortSignal.any([controller.signal, context.signal])
       : controller.signal;
     this.active.set(start.runId, { fence: start.fence, controller });
     try {
+      // A recovered worker must find the original durable host receipt before attaching.
+      // A missing receipt never becomes permission to submit the task again.
+      if (!allowCreate) await this.client.status(start.runId);
       await this.client.start(start, signal);
       for (const decision of decisions)
         await this.client.respond(

@@ -27,7 +27,7 @@ readline.createInterface({input:process.stdin}).on('line', line => {
    const table = setting.slice(setting.indexOf('=')+1).slice(1,-1);
    const filesystem = {glob_scan_max_depth:null,...Object.fromEntries(table.split(',').map(row => { const split=row.lastIndexOf('='); return [JSON.parse(row.slice(0,split)),JSON.parse(row.slice(split+1))]; }))};
    if (process.env.LANG === 'mismatch') filesystem['/'] = 'read';
-   reply(m.id,{config:{permissions:{[profile]:{filesystem,network:{enabled:false}}},mcp_servers:{},plugins:{},hooks:{},features:Object.fromEntries(args.filter(v=>v.startsWith('features.')&&v.endsWith('=false')).map(v=>[v.slice(9,-6),false]))}});
+   reply(m.id,{config:{web_search:'disabled',permissions:{[profile]:{filesystem,network:{enabled:false}}},mcp_servers:{},plugins:{},hooks:{},features:Object.fromEntries(args.filter(v=>v.startsWith('features.')&&v.endsWith('=false')).map(v=>[v.slice(9,-6),false]))}});
  }
  if (m.method === 'model/list') reply(m.id,{data:[{id:'fake-model',displayName:'Fake'}],nextCursor:null});
  if (m.method === 'thread/start' || m.method === 'thread/resume') reply(m.id,{thread:{id:thread},cwd,runtimeWorkspaceRoots:[cwd],activePermissionProfile:{id:profile},approvalPolicy:'on-request',approvalsReviewer:'user'});
@@ -35,6 +35,7 @@ readline.createInterface({input:process.stdin}).on('line', line => {
    prompt=m.params.input[0].text; reply(m.id,{turn:{id:turn}});
    send({method:'turn/started',params:{threadId:thread,turn:{id:turn}}});
    if (prompt === 'wait') return;
+   if (prompt === 'delayed') { send({method:'item/agentMessage/delta',params:{threadId:thread,turnId:turn,delta:'started'}}); setTimeout(done, 1500); return; }
    if (prompt === 'question') { send({id:900,method:'item/tool/requestUserInput',params:{threadId:thread,turnId:turn,itemId:'ask',isBlocking:true,questions:[{id:'choice',question:'Which file?',isSecret:false,options:[{label:'one'}]}]}}); return; }
    if (prompt === 'approval') {
      send({method:'item/started',params:{threadId:thread,turnId:turn,item:{id:'patch',type:'fileChange',changes:[{path:path.join(cwd,'file.txt'),diff:'+updated'}]}}});

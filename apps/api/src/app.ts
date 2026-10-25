@@ -29,6 +29,7 @@ import {
   ChatSdkMessagingSurface,
   CodexCatalogCache,
   ComposioConnector,
+  cancelLocalAgentRuns,
   createAgentHomeStore,
   createArtifactStore,
   createBackgroundJobHandlers,
@@ -488,6 +489,12 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         where: { userId },
         select: { id: true, userId: true, spaceId: true, name: true, archivedAt: true },
       });
+      for (const bot of bots)
+        await cancelLocalAgentRuns(
+          { prisma, secrets, allowedOrigins: env.localAgentAllowedOrigins ?? [] },
+          bot,
+          { botId: bot.id },
+        );
       await Promise.all(
         bots.map((bot) =>
           destroyBot(
@@ -536,6 +543,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   // resolution alike, so a list call warms the run path in this process.
   const codexCatalog = new CodexCatalogCache();
   const localAgent = new LocalAgentCoordinator({
+    notifications,
     prisma,
     secrets,
     events,

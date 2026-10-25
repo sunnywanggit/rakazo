@@ -223,6 +223,7 @@ async function main() {
     accessToken: process.env.EXPO_ACCESS_TOKEN,
   });
   const localAgent = new LocalAgentCoordinator({
+    notifications,
     prisma,
     secrets,
     events,

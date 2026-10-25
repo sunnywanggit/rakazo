@@ -106,10 +106,13 @@ async function body(request: IncomingMessage) {
 /** Authenticated, bounded host control plane. Raw engine RPC and paths never cross this boundary. */
 export async function startLocalAgentHost(options: LocalAgentHostOptions) {
   if (!/^[a-f0-9]{64}$/.test(options.token)) throw new Error("Invalid local agent credential");
+  if (!path.isAbsolute(options.root)) throw new Error("Local agent state needs an absolute path");
   await mkdir(options.root, { recursive: true, mode: 0o700 });
   const rootStat = await lstat(options.root);
   if (
+    !rootStat.isDirectory() ||
     rootStat.isSymbolicLink() ||
+    (await realpath(options.root)) !== path.resolve(options.root) ||
     (rootStat.mode & 0o077) !== 0 ||
     (process.getuid && rootStat.uid !== process.getuid())
   )

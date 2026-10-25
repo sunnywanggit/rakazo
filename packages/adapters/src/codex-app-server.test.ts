@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CodexAppServerEngine,
@@ -145,4 +147,56 @@ describe("Codex native driver", () => {
     expect(args).toContain("hooks={}");
     expect(args.join(" ")).not.toContain("danger-full-access");
   });
+});
+
+it("kills the owned native process after an abrupt host exit", async () => {
+  const f = await codexFixture();
+  cleanup.push(f.dispose);
+  const source = await readFile(f.executable, "utf8");
+  await writeFile(
+    f.executable,
+    source.replace(
+      "if (prompt === 'wait') return;",
+      "if (prompt === 'wait') { setTimeout(() => fs.writeFileSync(path.join(process.env.HOME,'orphan-effect'),'bad'), 1200); return; }",
+    ),
+  );
+  const driver = fileURLToPath(new URL("./codex-app-server.ts", import.meta.url));
+  const code = `import { CodexAppServerEngine } from ${JSON.stringify(driver)};
+    const engine = new CodexAppServerEngine({ executable: ${JSON.stringify(f.executable)}, env: { HOME: ${JSON.stringify(f.base)}, PATH: process.env.PATH } });
+    const execution = await engine.start({ request: ${JSON.stringify({ ...f.request, prompt: "wait" })}, cwd: ${JSON.stringify(f.cwd)}, session: async () => {}, emit: async () => {} });
+    process.stdout.write('ready\\n'); await execution.completion;`;
+  const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", code], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  cleanup.push(async () => {
+    host.kill("SIGKILL");
+  });
+  await new Promise<void>((resolve, reject) => {
+    host.stdout.once("data", () => resolve());
+    host.once("error", reject);
+    host.once("exit", () => reject(new Error("Host exited before startup")));
+  });
+  host.kill("SIGKILL");
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await expect(readFile(path.join(f.base, "orphan-effect"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+});
+
+it("declines a patch whose full preview cannot fit in the approval card", async () => {
+  const f = await codexFixture();
+  cleanup.push(f.dispose);
+  const source = await readFile(f.executable, "utf8");
+  await writeFile(f.executable, source.replace("diff:'+updated'", `diff:'${"x".repeat(16001)}'`));
+  const emit = vi.fn(async () => undefined);
+  const execution = await f.engine.start({
+    request: { ...f.request, prompt: "approval", access: "write" },
+    cwd: f.cwd,
+    session: async () => {},
+    emit,
+  });
+  cleanup.push(() => execution.cancel());
+  await execution.completion;
+  expect(emit.mock.calls.some(([event]: any[]) => event.type === "interaction")).toBe(false);
+  await expect(readFile(path.join(f.cwd, "file.txt"))).rejects.toMatchObject({ code: "ENOENT" });
 });

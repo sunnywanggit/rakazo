@@ -87,6 +87,9 @@ async function fixture(
 }
 
 describe("local host boundary", () => {
+  it("rejects relative state paths before writing credentials into a checkout", async () => {
+    await expect(fixture({ root: "relative-local-state" })).rejects.toThrow("absolute");
+  });
   it("authenticates every endpoint, rejects browser origins and unpaired scopes", async () => {
     const f = await fixture();
     expect(

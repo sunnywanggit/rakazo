@@ -9,6 +9,12 @@ import {
 import { createSafeRemoteFetch } from "./remote-mcp.js";
 
 export class LocalAgentBusyError extends Error {}
+export class LocalAgentTransportError extends Error {}
+export class LocalAgentRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`Local agent request failed (${status})`);
+  }
+}
 
 /** Deployment-owned origins are a narrow network grant, independent of MCP policy. */
 export function localAgentAllowedOrigins(value: string | undefined): string[] {
@@ -39,8 +45,10 @@ export class LocalAgentClient {
   constructor(
     private readonly options: { endpoint: string; token: string; allowedOrigins: string[] },
   ) {
-    const [origin] = localAgentAllowedOrigins(options.endpoint);
+    const origins = localAgentAllowedOrigins(options.endpoint);
+    const [origin] = origins;
     if (
+      origins.length !== 1 ||
       !origin ||
       !options.allowedOrigins.includes(origin) ||
       !/^[a-f0-9]{64}$/.test(options.token)
@@ -59,11 +67,14 @@ export class LocalAgentClient {
       signal: stream
         ? signal
         : AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])]),
+    }).catch(() => {
+      throw new LocalAgentTransportError("Local agent connection interrupted");
     });
     if (!response.ok) {
       await response.body?.cancel();
       if (response.status === 423) throw new LocalAgentBusyError("Local project is busy");
-      throw new Error(`Local agent request failed (${response.status})`);
+      if (response.status >= 500) throw new LocalAgentTransportError("Local agent unavailable");
+      throw new LocalAgentRequestError(response.status);
     }
     return response;
   }
@@ -118,10 +129,12 @@ export class LocalAgentClient {
       while (true) {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const next = await Promise.race([
-          reader.read(),
+          reader.read().catch(() => {
+            throw new LocalAgentTransportError("Local event stream interrupted");
+          }),
           new Promise<never>((_, reject) => {
             timer = setTimeout(
-              () => reject(new Error("Local agent event stream timed out")),
+              () => reject(new LocalAgentTransportError("Local agent event stream timed out")),
               45_000,
             );
             timer.unref();
