@@ -1,4 +1,23 @@
 export const RU_MESSAGES: Record<string, string> = {
+  "Connect local agent": "Подключить локальный агент",
+  Execution: "Выполнение",
+  "Local agent endpoint": "Адрес локального агента",
+  "Local agent unavailable. Check the connection and stop active work before changing execution.":
+    "Локальный агент недоступен. Проверьте подключение и остановите активные задачи перед изменением способа выполнения.",
+  "Local model": "Локальная модель",
+  "Pairing token": "Токен сопряжения",
+  Project: "Проект",
+  "Project access": "Доступ к проекту",
+  "Read and write": "Чтение и запись",
+  "Read only": "Только чтение",
+  "Revoke connection": "Отозвать подключение",
+  "Save execution": "Сохранить настройки выполнения",
+  "Local session is open in another app. Release it there, then try again.":
+    "Локальный сеанс открыт в другом приложении. Освободите его там и повторите попытку.",
+  "Local agent execution failed": "Не удалось выполнить локальный агент",
+  "Local agent execution stopped": "Выполнение локального агента остановлено",
+  "Local execution is uncertain; the task was not replayed":
+    "Статус локального выполнения не подтверждён; задача не запускалась повторно",
   "Use 80 characters or fewer": "Не более 80 символов",
   "Could not update name": "Не удалось обновить имя",
   "{summary} Your backup models also failed.":

@@ -1782,6 +1782,7 @@ model LocalAgentRun {
   cursor Int @default(0)
   hostFence Int @default(0)
   terminalStatus String?
+  terminalError String?
   interactions LocalAgentInteraction[]
   @@index([spaceId, userId])
   @@map("local_agent_runs")

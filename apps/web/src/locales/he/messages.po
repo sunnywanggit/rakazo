@@ -5632,3 +5632,23 @@ msgstr "מנסה שוב…"
 #: src/pages/shell/transcript.tsx
 msgid "Rate limited; waiting to retry…"
 msgstr "מגבלת בקשות; ממתין לניסיון נוסף…"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local session is open in another app. Release it there, then try again."
+msgstr "ההפעלה המקומית פתוחה ביישום אחר. יש לשחרר אותה שם ולנסות שוב."
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution failed"
+msgstr "הפעלת הסוכן המקומי נכשלה"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution stopped"
+msgstr "הפעלת הסוכן המקומי הופסקה"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local execution is uncertain; the task was not replayed"
+msgstr "מצב הביצוע המקומי אינו ודאי; המשימה לא הורצה שוב"

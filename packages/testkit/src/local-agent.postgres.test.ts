@@ -292,6 +292,38 @@ describe.skipIf(!available)("local Codex through the authenticated API and worke
         headers: { authorization: `Bearer ${token}` },
       });
       expect((await status.json()).status).toBe("cancelled");
+      // A different native client can retain the writer after our stopped process exits.
+      const nativeSource = await readFile(fixture.executable, "utf8");
+      await writeFile(
+        fixture.executable,
+        nativeSource.replace(
+          "if (m.method === 'thread/start' || m.method === 'thread/resume')",
+          "if (m.method === 'thread/resume' && fs.existsSync(path.join(process.env.HOME,'writer-held'))) { send({id:m.id,error:{code:-32600,message:'thread '+m.params.threadId+' already has an active writer'}}); return; } if (m.method === 'thread/start' || m.method === 'thread/resume')",
+        ),
+      );
+      await writeFile(path.join(fixture.base, "writer-held"), "fixture");
+      const beforeBusy = (await readFile(path.join(fixture.base, "wire.jsonl"), "utf8"))
+        .split("\n")
+        .filter((line) => line.includes('"method":"turn/start"')).length;
+      const busy = await send("inspect");
+      await wait(busy.runId, "failed");
+      const savedBusy = await db.localAgentRun.findUniqueOrThrow({ where: { id: busy.runId } });
+      expect(savedBusy.terminalStatus).toBe("failed");
+      expect(savedBusy.terminalError).toBe("local_session_in_use");
+      expect((await db.run.findUniqueOrThrow({ where: { id: busy.runId } })).error).toBe(
+        "Local session is open in another app. Release it there, then try again.",
+      );
+      expect(
+        (await readFile(path.join(fixture.base, "wire.jsonl"), "utf8"))
+          .split("\n")
+          .filter((line) => line.includes('"method":"turn/start"')),
+      ).toHaveLength(beforeBusy);
+      await rm(path.join(fixture.base, "writer-held"));
+      const recovered = await send("inspect");
+      await wait(recovered.runId, "completed");
+      expect(
+        (await db.localAgentRun.findUniqueOrThrow({ where: { id: recovered.runId } })).sessionId,
+      ).toBe(savedBusy.sessionId);
       expect(sendNotice.mock.calls).toEqual(
         expect.arrayContaining([
           expect.arrayContaining([expect.objectContaining({ kind: "help", botId: bot.id })]),

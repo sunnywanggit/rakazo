@@ -1,4 +1,23 @@
 export const JA_MESSAGES: Record<string, string> = {
+  "Connect local agent": "ローカルエージェントを接続",
+  Execution: "実行方法",
+  "Local agent endpoint": "ローカルエージェントの接続先",
+  "Local agent unavailable. Check the connection and stop active work before changing execution.":
+    "ローカルエージェントを利用できません。接続を確認し、実行方法を変更する前に実行中のタスクを停止してください。",
+  "Local model": "ローカルモデル",
+  "Pairing token": "ペアリングトークン",
+  Project: "プロジェクト",
+  "Project access": "プロジェクトのアクセス権",
+  "Read and write": "読み書き",
+  "Read only": "読み取り専用",
+  "Revoke connection": "接続を取り消す",
+  "Save execution": "実行設定を保存",
+  "Local session is open in another app. Release it there, then try again.":
+    "ローカルセッションは別のアプリで開かれています。そのアプリで解放してから、もう一度お試しください。",
+  "Local agent execution failed": "ローカルエージェントの実行に失敗しました",
+  "Local agent execution stopped": "ローカルエージェントの実行を停止しました",
+  "Local execution is uncertain; the task was not replayed":
+    "ローカル実行の状態を確認できません。タスクは再実行されていません",
   "The model returned an unusable response. Try again.":
     "モデルが利用できない応答を返しました。もう一度お試しください。",
   "This model's context window is too small. Choose another model.":

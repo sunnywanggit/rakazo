@@ -3,6 +3,7 @@ import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { LocalAgentEngine } from "@rakazo/adapter-kit";
+import { LocalAgentSessionInUseError } from "@rakazo/adapter-kit";
 import type { LocalAgentStart } from "@rakazo/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startLocalAgentHost } from "./local-agent-host.js";
@@ -87,6 +88,18 @@ async function fixture(
 }
 
 describe("local host boundary", () => {
+  it("journals a safe session conflict and does not retry the failed input", async () => {
+    const f = await fixture();
+    f.start.mockRejectedValueOnce(new LocalAgentSessionInUseError());
+    expect((await f.call("/v1/runs", input)).status).toBe(200);
+    await vi.waitFor(async () =>
+      expect((await (await f.call("/v1/runs/run")).json()).status).toBe("failed"),
+    );
+    const events = await (await f.call("/v1/runs/run/events?after=0")).text();
+    expect(events).toContain('"error":"local_session_in_use"');
+    expect((await f.call("/v1/runs", { ...input, fence: 2 })).status).toBe(200);
+    expect(f.start).toHaveBeenCalledOnce();
+  });
   it("negotiates reuse only for capable callers and durably releases the exact binding", async () => {
     const f = await fixture({ sessionReuse: true });
     const release = vi.fn(async () => {});

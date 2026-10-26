@@ -1,4 +1,5 @@
 import { COMPUTER_RATE_LIMIT_ERROR } from "@rakazo/contracts";
+import { localAgentFailureMessages } from "./local-agent-failure.js";
 import { stuckWorkStatusMessages } from "./stuck-work.js";
 
 export const MISSING_TOOL_FINAL_RESPONSE_ERROR =
@@ -38,6 +39,7 @@ const APP_RUN_ERRORS = new Set([
   COMPUTER_RATE_LIMIT_ERROR,
   ...stuckWorkStatusMessages(),
 ]);
+const LOCAL_RUN_ERRORS = new Set<string>(Object.values(localAgentFailureMessages));
 
 export const RUN_ERROR_LIMIT_MESSAGES = {
   key: {
@@ -146,6 +148,7 @@ export function normalizeRunError(
   period?: "none" | "daily" | "weekly" | "monthly";
 } {
   const trimmed = details.trim();
+  if (LOCAL_RUN_ERRORS.has(trimmed)) return { summary: translate(trimmed), details };
   // "429: {...}", "429 {...}", or the model runtime's "<provider> API error (429): {...}".
   const prefix = trimmed.match(
     /^(?:[^\n():]{1,60} API error \((\d{3})\):\s*|(\d{3})(?:\s*:\s*|\s+))/,

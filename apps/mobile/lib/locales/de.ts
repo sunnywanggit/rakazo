@@ -1,4 +1,23 @@
 export const DE_MESSAGES: Record<string, string> = {
+  "Connect local agent": "Lokalen Agenten verbinden",
+  Execution: "Ausführung",
+  "Local agent endpoint": "Adresse des lokalen Agenten",
+  "Local agent unavailable. Check the connection and stop active work before changing execution.":
+    "Lokaler Agent nicht verfügbar. Prüfe die Verbindung und stoppe aktive Aufgaben, bevor du die Ausführung änderst.",
+  "Local model": "Lokales Modell",
+  "Pairing token": "Kopplungstoken",
+  Project: "Projekt",
+  "Project access": "Projektzugriff",
+  "Read and write": "Lesen und schreiben",
+  "Read only": "Nur lesen",
+  "Revoke connection": "Verbindung widerrufen",
+  "Save execution": "Ausführung speichern",
+  "Local session is open in another app. Release it there, then try again.":
+    "Die lokale Sitzung ist in einer anderen App geöffnet. Gib sie dort frei und versuche es erneut.",
+  "Local agent execution failed": "Die Ausführung des lokalen Agenten ist fehlgeschlagen",
+  "Local agent execution stopped": "Die Ausführung des lokalen Agenten wurde gestoppt",
+  "Local execution is uncertain; the task was not replayed":
+    "Der lokale Ausführungsstatus ist unklar; die Aufgabe wurde nicht erneut ausgeführt",
   "Use 80 characters or fewer": "Höchstens 80 Zeichen verwenden",
   "Could not update name": "Name konnte nicht aktualisiert werden",
   "{summary} Your backup models also failed.":

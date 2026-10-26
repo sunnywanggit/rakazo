@@ -105,6 +105,10 @@ describe("normalizeRunError", () => {
   it.each([
     "The tools finished, but the model did not write a final answer. Rephrase the request and try again.",
     "Stopped. This stayed queued without starting.",
+    "Local session is open in another app. Release it there, then try again.",
+    "Local agent execution failed",
+    "Local agent execution stopped",
+    "Local execution is uncertain; the task was not replayed",
   ])("preserves app-authored recovery advice: %s", (details) => {
     expect(normalizeRunError(details)).toMatchObject({ summary: details, details });
   });

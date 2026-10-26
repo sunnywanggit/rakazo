@@ -1,4 +1,23 @@
 export const NL_MESSAGES: Record<string, string> = {
+  "Connect local agent": "Lokale agent verbinden",
+  Execution: "Uitvoering",
+  "Local agent endpoint": "Adres van lokale agent",
+  "Local agent unavailable. Check the connection and stop active work before changing execution.":
+    "Lokale agent niet beschikbaar. Controleer de verbinding en stop actieve taken voordat je de uitvoering wijzigt.",
+  "Local model": "Lokaal model",
+  "Pairing token": "Koppelingstoken",
+  Project: "Project",
+  "Project access": "Projecttoegang",
+  "Read and write": "Lezen en schrijven",
+  "Read only": "Alleen lezen",
+  "Revoke connection": "Verbinding intrekken",
+  "Save execution": "Uitvoering opslaan",
+  "Local session is open in another app. Release it there, then try again.":
+    "De lokale sessie is geopend in een andere app. Geef deze daar vrij en probeer het opnieuw.",
+  "Local agent execution failed": "De uitvoering van de lokale agent is mislukt",
+  "Local agent execution stopped": "De uitvoering van de lokale agent is gestopt",
+  "Local execution is uncertain; the task was not replayed":
+    "De lokale uitvoeringsstatus is onzeker; de taak is niet opnieuw uitgevoerd",
   "Use 80 characters or fewer": "Gebruik maximaal 80 tekens",
   "Could not update name": "Naam kon niet worden bijgewerkt",
   "{summary} Your backup models also failed.": "{summary} Je reservemodellen zijn ook mislukt.",

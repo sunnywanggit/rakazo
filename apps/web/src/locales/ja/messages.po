@@ -5632,3 +5632,23 @@ msgstr "再試行中…"
 #: src/pages/shell/transcript.tsx
 msgid "Rate limited; waiting to retry…"
 msgstr "リクエスト制限により再試行を待機中…"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local session is open in another app. Release it there, then try again."
+msgstr "ローカルセッションは別のアプリで開かれています。そのアプリで解放してから、もう一度お試しください。"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution failed"
+msgstr "ローカルエージェントの実行に失敗しました"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution stopped"
+msgstr "ローカルエージェントの実行を停止しました"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local execution is uncertain; the task was not replayed"
+msgstr "ローカル実行の状態を確認できません。タスクは再実行されていません"

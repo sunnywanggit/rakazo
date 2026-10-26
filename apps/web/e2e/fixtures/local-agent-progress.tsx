@@ -1,9 +1,14 @@
 import { I18nProvider } from "@lingui/react";
 import type { MessageBlock, ThreadMessage } from "@rakazo/contracts";
-import { localAgentProgress, reduceLiveMessageBlocks } from "@rakazo/core";
-import { useState } from "react";
+import {
+  localAgentFailureMessage,
+  localAgentProgress,
+  reduceLiveMessageBlocks,
+} from "@rakazo/core";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { bootstrapI18n, i18n } from "../../src/lib/i18n";
+import { ComposerError } from "../../src/pages/shell/composer-error";
 import "../../src/styles.css";
 import { FixtureTranscript } from "./thread-fixture";
 
@@ -14,6 +19,8 @@ function ProgressFixture() {
   ]);
   const [running, setRunning] = useState(true);
   const [step, setStep] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stages = [localAgentProgress.waiting, "Fixture public summary", localAgentProgress.limited];
   const message: ThreadMessage = {
     id: "progress:run-1",
@@ -27,6 +34,25 @@ function ProgressFixture() {
   };
   const controls = (
     <>
+      <button
+        type="button"
+        onClick={() => {
+          setRunning(false);
+          setBlocks([]);
+          setFailed(true);
+        }}
+      >
+        Occupied session fixture
+      </button>
+      <ComposerError
+        sendError={null}
+        runError={failed ? localAgentFailureMessage("failed", "local_session_in_use") : null}
+        runErrorId={failed ? "run-1" : null}
+        onRunErrorPresented={() => {}}
+        onOpenModels={() => {}}
+        onDismissError={() => setFailed(false)}
+        textareaRef={textareaRef}
+      />
       <button
         type="button"
         onClick={() => {

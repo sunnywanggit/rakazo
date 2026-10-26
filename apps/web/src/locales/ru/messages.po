@@ -5632,3 +5632,23 @@ msgstr "Повторная попытка…"
 #: src/pages/shell/transcript.tsx
 msgid "Rate limited; waiting to retry…"
 msgstr "Лимит запросов; ожидание повторной попытки…"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local session is open in another app. Release it there, then try again."
+msgstr "Локальный сеанс открыт в другом приложении. Освободите его там и повторите попытку."
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution failed"
+msgstr "Не удалось выполнить локальный агент"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution stopped"
+msgstr "Выполнение локального агента остановлено"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local execution is uncertain; the task was not replayed"
+msgstr "Статус локального выполнения не подтверждён; задача не запускалась повторно"

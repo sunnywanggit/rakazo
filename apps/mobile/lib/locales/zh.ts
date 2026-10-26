@@ -1,4 +1,23 @@
 export const ZH_MESSAGES: Record<string, string> = {
+  "Connect local agent": "连接本地代理",
+  Execution: "执行方式",
+  "Local agent endpoint": "本地代理地址",
+  "Local agent unavailable. Check the connection and stop active work before changing execution.":
+    "本地代理不可用。请检查连接，并在更改执行方式前停止正在运行的任务。",
+  "Local model": "本地模型",
+  "Pairing token": "配对令牌",
+  Project: "项目",
+  "Project access": "项目权限",
+  "Read and write": "可读写",
+  "Read only": "只读",
+  "Revoke connection": "撤销连接",
+  "Save execution": "保存执行设置",
+  "Local session is open in another app. Release it there, then try again.":
+    "本地会话正由其他应用占用。请先在该应用中释放会话，然后重试。",
+  "Local agent execution failed": "本地代理执行失败",
+  "Local agent execution stopped": "本地代理执行已停止",
+  "Local execution is uncertain; the task was not replayed":
+    "无法确认本地执行状态；任务未被重复执行",
   "Use 80 characters or fewer": "请使用不超过 80 个字符",
   "Could not update name": "无法更新姓名",
   "{summary} Your backup models also failed.": "{summary} 备用模型也失败了。",

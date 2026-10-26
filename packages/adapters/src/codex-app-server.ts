@@ -5,6 +5,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit";
+import { LocalAgentSessionInUseError } from "@rakazo/adapter-kit";
 import type { LocalAgentDecision, LocalAgentSessionSelector } from "@rakazo/contracts";
 import { LocalAgentInteractionSchema } from "@rakazo/contracts";
 import { localAgentProgress } from "@rakazo/core";
@@ -132,7 +133,12 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
   let onFailure: () => void = () => undefined;
   const pending = new Map<
     number,
-    { resolve: (result: any) => void; reject: (error: Error) => void }
+    {
+      method: string;
+      threadId?: string;
+      resolve: (result: any) => void;
+      reject: (error: Error) => void;
+    }
   >();
   const send = (value: Rpc) => {
     if (closed) throw new Error("Codex connection closed");
@@ -166,8 +172,19 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
         const request = pending.get(message.id);
         if (!request) return;
         pending.delete(message.id);
-        if (message.error) request.reject(new Error("Codex request was rejected"));
-        else request.resolve(message.result);
+        if (message.error) {
+          const error = message.error as { code?: unknown; message?: unknown };
+          // A generic invalid-request code alone is not a writer conflict. Match this reviewed
+          // native error contract against the requested thread, then discard the private payload.
+          const inUse =
+            request.method === "thread/resume" &&
+            request.threadId &&
+            error.code === -32600 &&
+            error.message === `thread ${request.threadId} already has an active writer`;
+          request.reject(
+            inUse ? new LocalAgentSessionInUseError() : new Error("Codex request was rejected"),
+          );
+        } else request.resolve(message.result);
       } else onMessage(message);
     } catch {
       fail();
@@ -224,6 +241,14 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
         }, timeoutMs);
         timer.unref();
         pending.set(id, {
+          method,
+          threadId:
+            params &&
+            typeof params === "object" &&
+            "threadId" in params &&
+            typeof params.threadId === "string"
+              ? params.threadId
+              : undefined,
           resolve: (value) => {
             clearTimeout(timer);
             resolve(value);
@@ -940,6 +965,9 @@ export class CodexAppServerEngine implements LocalAgentEngine {
       for (const message of early.splice(0)) enqueue(message);
     } catch (error) {
       finish();
+      // The Host releases its project lock when start rejects. Finish native cleanup first so
+      // a new explicit run cannot race the previous admission attempt or its process tree.
+      await cleanup;
       throw error;
     }
     return {

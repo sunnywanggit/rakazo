@@ -4,6 +4,30 @@ import type { RunErrorTranslator } from "@rakazo/core";
 /** Static descriptors keep shared run-error messages in Lingui extraction. */
 export const translateRunError: RunErrorTranslator = (message, values) => {
   switch (message) {
+    case "Local session is open in another app. Release it there, then try again.":
+      return i18n._({
+        id: "Local session is open in another app. Release it there, then try again.",
+        message: "Local session is open in another app. Release it there, then try again.",
+        values,
+      });
+    case "Local agent execution failed":
+      return i18n._({
+        id: "Local agent execution failed",
+        message: "Local agent execution failed",
+        values,
+      });
+    case "Local agent execution stopped":
+      return i18n._({
+        id: "Local agent execution stopped",
+        message: "Local agent execution stopped",
+        values,
+      });
+    case "Local execution is uncertain; the task was not replayed":
+      return i18n._({
+        id: "Local execution is uncertain; the task was not replayed",
+        message: "Local execution is uncertain; the task was not replayed",
+        values,
+      });
     case "Your OpenRouter":
       return i18n._({ id: "Your OpenRouter", message: "Your OpenRouter", values });
     case "Your OpenAI":

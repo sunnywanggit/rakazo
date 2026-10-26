@@ -5,6 +5,14 @@ import type {
   LocalAgentStart,
 } from "@rakazo/contracts";
 
+/** The native session has a live owner elsewhere; admission failed before input submission. */
+export class LocalAgentSessionInUseError extends Error {
+  constructor() {
+    super("Local session is in use");
+    this.name = "LocalAgentSessionInUseError";
+  }
+}
+
 /** Native engine boundary. The host owns authorization, journals and process lifetime. */
 export interface LocalAgentEngine {
   readonly id: string;

@@ -79,6 +79,14 @@ Journals intentionally do not auto-evict idempotency records: the default host s
 
 Revoke a connection in settings to disable it and stop its tasks. To invalidate a captured host token too, stop the helper, rotate the private token, restart it and create a new connection; revocation in Rakazo alone does not rotate a separate process's credential. Changing project/model/access or clearing history creates a new native session binding. Existing native Codex chats are never imported.
 
+## A session is open in another app
+
+The local helper and Codex Desktop run separate app-server processes. A persisted native conversation can have only one writer. If another client owns it, Rakazo rejects that run before submitting its input and displays “Local session is open in another app. Release it there, then try again.” It preserves the native reference and does not fork, take over the other client, or replay the failed input.
+
+Release the conversation in the owning client, then send a new request from Rakazo. Some Codex versions retain idle conversations after a tab closes; if the owner remains, finish its active work and restart that owning app. Restarting only the Rakazo web service or helper cannot release another process's writer. Never delete a writer lock or session history to bypass the conflict. Independent conversations can still run against the same authorized project.
+
+The existing error surface distinguishes failed, stopped and uncertain runs. Its recovery advice appears only on failure, because hiding it under technical details would leave the user without the action needed to continue. Only a known application failure code is persisted and presented; raw native errors and session identifiers remain private.
+
 ## Acceptance commands
 
 Default protocol, host, runtime and UI tests are offline and use fake CLI processes. The Postgres test requires a disposable migrated database with a separate runtime role; never point it at application data. See the task evidence for the verified cases.

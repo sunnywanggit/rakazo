@@ -5632,3 +5632,23 @@ msgstr "Yeniden deneniyor…"
 #: src/pages/shell/transcript.tsx
 msgid "Rate limited; waiting to retry…"
 msgstr "İstek sınırına ulaşıldı; yeniden deneme bekleniyor…"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local session is open in another app. Release it there, then try again."
+msgstr "Yerel oturum başka bir uygulamada açık. Oturumu orada serbest bırakıp yeniden deneyin."
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution failed"
+msgstr "Yerel aracı çalıştırılamadı"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution stopped"
+msgstr "Yerel aracının çalışması durduruldu"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local execution is uncertain; the task was not replayed"
+msgstr "Yerel yürütme durumu doğrulanamadı; görev yeniden çalıştırılmadı"

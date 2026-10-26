@@ -7,6 +7,18 @@ import {
   signup,
 } from "./helpers";
 
+test("an occupied native session shows local recovery guidance", async ({ page }, testInfo) => {
+  await page.goto("/e2e/fixtures/local-agent-progress.html");
+  await page.getByRole("button", { name: "Occupied session fixture" }).click();
+  const error = page.getByTestId("composer-error");
+  await expect(error).toContainText(
+    "Local session is open in another app. Release it there, then try again.",
+  );
+  await expect(error).not.toContainText("model provider");
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await captureScreenshot(page, testInfo, "local-agent-session-occupied");
+});
+
 test("local progress uses the existing status line with tool activity off", async ({
   page,
 }, testInfo) => {

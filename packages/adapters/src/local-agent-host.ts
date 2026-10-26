@@ -5,6 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { createServer } from "node:http";
 import path from "node:path";
 import type { LocalAgentEngine, LocalAgentExecution } from "@rakazo/adapter-kit";
+import { LocalAgentSessionInUseError } from "@rakazo/adapter-kit";
 import type {
   LocalAgentDecision,
   LocalAgentEnvelope,
@@ -333,12 +334,15 @@ export async function startLocalAgentHost(options: LocalAgentHostOptions) {
       }
       const result = await execution.completion;
       await exclusive(() => append(record, { type: "terminal", status: result }));
-    } catch {
+    } catch (error) {
       await exclusive(() =>
         append(record, {
           type: "terminal",
           status: controller.signal.aborted ? "cancelled" : "failed",
-          error: "Local agent execution failed; check local engine configuration",
+          error:
+            error instanceof LocalAgentSessionInUseError
+              ? "local_session_in_use"
+              : "Local agent execution failed; check local engine configuration",
         }),
       );
     } finally {

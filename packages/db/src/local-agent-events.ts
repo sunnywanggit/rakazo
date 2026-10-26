@@ -1,4 +1,5 @@
 import type { LocalAgentEnvelope, MessageBlock } from "@rakazo/contracts";
+import { localAgentFailureCode } from "@rakazo/core";
 import type { PrismaClient } from "./client.js";
 import { appendEventInTransaction, pauseRunForInputInTransaction } from "./events.js";
 
@@ -117,7 +118,12 @@ export async function commitLocalAgentEvent(
         cursor: envelope.sequence,
         ...(event.type === "text" ? { output: native.output + event.text } : {}),
         ...(event.type === "interaction" ? { output: "" } : {}),
-        ...(event.type === "terminal" ? { terminalStatus: event.status } : {}),
+        ...(event.type === "terminal"
+          ? {
+              terminalStatus: event.status,
+              terminalError: event.status === "failed" ? localAgentFailureCode(event.error) : null,
+            }
+          : {}),
       },
     });
     return { paused: event.type === "interaction", sequence, continuationRunId };

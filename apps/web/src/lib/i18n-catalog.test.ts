@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { i18n } from "@lingui/core";
-import { RUN_ERROR_LIMIT_MESSAGES } from "@rakazo/core";
+import { localAgentFailureMessages, RUN_ERROR_LIMIT_MESSAGES } from "@rakazo/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { UI_LOCALES } from "./ui-locale";
 
@@ -24,6 +24,7 @@ describe("lingui catalogs", () => {
 
   it("localizes provider error guidance and retains its placeholders", () => {
     const messages = [
+      ...Object.values(localAgentFailureMessages),
       ...Object.values(RUN_ERROR_LIMIT_MESSAGES).flatMap(Object.values),
       "{summary} Your backup models also failed.",
       "{summary} No backup model was usable for this request.",

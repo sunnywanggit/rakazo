@@ -5632,3 +5632,23 @@ msgstr "फिर कोशिश हो रही है…"
 #: src/pages/shell/transcript.tsx
 msgid "Rate limited; waiting to retry…"
 msgstr "अनुरोध सीमा पूरी; फिर कोशिश की प्रतीक्षा…"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local session is open in another app. Release it there, then try again."
+msgstr "स्थानीय सत्र किसी अन्य ऐप में खुला है। वहाँ उसे मुक्त करें, फिर दोबारा कोशिश करें।"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution failed"
+msgstr "स्थानीय एजेंट का निष्पादन विफल हुआ"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local agent execution stopped"
+msgstr "स्थानीय एजेंट का निष्पादन रोक दिया गया"
+
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "Local execution is uncertain; the task was not replayed"
+msgstr "स्थानीय निष्पादन की पुष्टि नहीं हो सकी; कार्य दोबारा नहीं चलाया गया"

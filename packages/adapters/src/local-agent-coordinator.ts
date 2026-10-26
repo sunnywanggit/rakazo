@@ -1,6 +1,7 @@
 import type { JobPublisher, NotificationProvider } from "@rakazo/adapter-kit";
 import { runContinueJob } from "@rakazo/adapter-kit";
 import { LocalAgentStartSchema } from "@rakazo/contracts";
+import { localAgentFailureMessage } from "@rakazo/core";
 import type { LocalAgentEventOwner, ThreadEvents } from "@rakazo/db";
 import { commitLocalAgentEvent, runAsSystem } from "@rakazo/db";
 import { notifyRun } from "./executor.js";
@@ -258,10 +259,7 @@ export class LocalAgentCoordinator {
               }
             : {
                 outcome: "failed" as const,
-                error:
-                  state.terminalStatus === "uncertain"
-                    ? "Local execution is uncertain; the task was not replayed"
-                    : "Local agent execution stopped",
+                error: localAgentFailureMessage(state.terminalStatus, state.terminalError),
               }),
         });
         if (result !== false && result.continuationRunId)
@@ -272,7 +270,11 @@ export class LocalAgentCoordinator {
             threadId: run.threadId,
             title: run.bot.name,
             kind: completed ? "completion" : "failure",
-            body: completed ? "Local project task completed" : "Local project task stopped",
+            body: completed
+              ? "Local project task completed"
+              : state.terminalStatus === "cancelled"
+                ? "Local project task stopped"
+                : "Local project task failed",
           });
         return true;
       };

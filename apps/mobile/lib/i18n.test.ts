@@ -129,14 +129,18 @@ describe("mobile i18n", () => {
     const { DE_MESSAGES } = await import("./locales/de");
     const { NL_MESSAGES } = await import("./locales/nl");
     const { JA_MESSAGES } = await import("./locales/ja");
-    const { EMPTY_PLUGIN_CATALOG_MESSAGE, SLASH_ACTIONS, RUN_ERROR_LIMIT_MESSAGES } = await import(
-      "@rakazo/core"
-    );
+    const {
+      EMPTY_PLUGIN_CATALOG_MESSAGE,
+      SLASH_ACTIONS,
+      RUN_ERROR_LIMIT_MESSAGES,
+      localAgentFailureMessages,
+    } = await import("@rakazo/core");
     const { AI_DATA_DISCLOSURES, OPENAI_COMPATIBLE_BASE_URL_HINT } = await import(
       "@rakazo/contracts"
     );
     const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
     const ids = new Set<string>([
+      ...Object.values(localAgentFailureMessages),
       ...Object.values(AI_DATA_DISCLOSURES),
       ...Object.values(RUN_ERROR_LIMIT_MESSAGES).flatMap(Object.values),
       "{summary} Your backup models also failed.",

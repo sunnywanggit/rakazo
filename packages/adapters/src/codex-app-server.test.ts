@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { LocalAgentSessionInUseError } from "@rakazo/adapter-kit";
 import type { LocalAgentEvent } from "@rakazo/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -32,6 +33,48 @@ async function fixture(prompt = "inspect", access: "read" | "write" = "read") {
 }
 
 describe("Codex native driver", () => {
+  it("classifies only the exact native resume writer conflict and never resubmits input", async () => {
+    const f = await codexFixture();
+    cleanup.push(f.dispose);
+    const source = await readFile(f.executable, "utf8");
+    await writeFile(
+      f.executable,
+      source.replace(
+        "if (m.method === 'thread/start' || m.method === 'thread/resume')",
+        "if (m.method === 'thread/resume') { send({id:m.id,error:{code:-32600,message:'thread '+m.params.threadId+' already has an active writer'}}); return; } if (m.method === 'thread/start')",
+      ),
+    );
+    const session = vi.fn(async () => undefined);
+    await expect(
+      f.engine.start({
+        request: f.request,
+        cwd: f.cwd,
+        sessionRef: "native-session",
+        session,
+        emit: async () => undefined,
+      }),
+    ).rejects.toBeInstanceOf(LocalAgentSessionInUseError);
+    expect(session).not.toHaveBeenCalled();
+    const wire = await readFile(path.join(f.base, "wire.jsonl"), "utf8");
+    expect(wire).not.toContain('"method":"turn/start"');
+    expect(wire).not.toContain('"method":"thread/fork"');
+    await writeFile(
+      f.executable,
+      source.replace(
+        "if (m.method === 'thread/start' || m.method === 'thread/resume')",
+        "if (m.method === 'thread/resume') { send({id:m.id,error:{code:-32600,message:'PRIVATE_NATIVE_DETAILS'}}); return; } if (m.method === 'thread/start')",
+      ),
+    );
+    await expect(
+      f.engine.start({
+        request: f.request,
+        cwd: f.cwd,
+        sessionRef: "native-session",
+        session,
+        emit: async () => undefined,
+      }),
+    ).rejects.toThrow("Codex request was rejected");
+  });
   it("invalidates every coalesced discovery caller when authentication changes in flight", async () => {
     const f = await codexFixture();
     cleanup.push(f.dispose);
