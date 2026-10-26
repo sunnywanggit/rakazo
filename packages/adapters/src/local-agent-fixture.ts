@@ -46,6 +46,9 @@ readline.createInterface({input:process.stdin}).on('line', line => {
    if (prompt === 'background-tool') {
      require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'ignore'}); done(); return;
    }
+   if (prompt === 'brief-background-tool') {
+     require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},50)'],{stdio:'ignore'}); done(); return;
+   }
    if (prompt === 'progress') {
      send({method:'item/started',params:{threadId:thread,turnId:turn,item:{id:'reason',type:'reasoning'}}});
      send({method:'item/reasoning/summaryTextDelta',params:{threadId:thread,turnId:turn,itemId:'reason',summaryIndex:0,delta:'Public summary'}});

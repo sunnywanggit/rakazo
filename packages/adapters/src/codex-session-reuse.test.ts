@@ -141,6 +141,13 @@ it("does not retain a harness that still owns a background tool", async () => {
   expect((await f.wire()).filter((m) => m.method === "initialize")).toHaveLength(2);
 });
 
+it("waits briefly for exiting descendants before retaining an idle harness", async () => {
+  const f = await fixture();
+  await (await f.begin({ prompt: "brief-background-tool" })).completion;
+  await (await f.begin()).completion;
+  expect((await f.wire()).filter((m) => m.method === "initialize")).toHaveLength(1);
+});
+
 it("invalidates an idle session when local authentication changes", async () => {
   const f = await fixture();
   await (await f.begin()).completion;

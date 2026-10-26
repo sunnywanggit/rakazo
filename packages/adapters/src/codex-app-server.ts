@@ -180,26 +180,33 @@ function connection(executable: string, args: string[], cwd: string, env: NodeJS
       try {
         // Retaining the harness must not retain a still-running tool after its Run releases the
         // project lock. Read only PID/parent metadata; command lines can contain credentials.
-        const result = await exec("/bin/ps", ["-axo", "pid=,ppid="], {
-          env,
-          timeout: 1_000,
-          maxBuffer: 1_000_000,
-        });
-        const rows = result.stdout
-          .trim()
-          .split("\n")
-          .map((line) => line.trim().split(/\s+/).map(Number));
-        const descendants = new Set<number>([child.pid]);
-        let changed = true;
-        while (changed) {
-          changed = false;
-          for (const [pid, parent] of rows)
-            if (pid && parent && descendants.has(parent) && !descendants.has(pid)) {
-              descendants.add(pid);
-              changed = true;
-            }
+        // A terminal notification can precede child exit. Recheck briefly while the Run still
+        // owns its project lock; a persistent descendant must still force process-tree cleanup.
+        for (let attempt = 0; attempt < 10; attempt++) {
+          if (closed) return false;
+          const result = await exec("/bin/ps", ["-axo", "pid=,ppid="], {
+            env,
+            timeout: 1_000,
+            maxBuffer: 1_000_000,
+          });
+          const rows = result.stdout
+            .trim()
+            .split("\n")
+            .map((line) => line.trim().split(/\s+/).map(Number));
+          const descendants = new Set<number>([child.pid]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const [pid, parent] of rows)
+              if (pid && parent && descendants.has(parent) && !descendants.has(pid)) {
+                descendants.add(pid);
+                changed = true;
+              }
+          }
+          if (!closed && descendants.size === 2) return true;
+          if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, 25));
         }
-        return !closed && descendants.size === 2;
+        return false;
       } catch {
         return false;
       }
