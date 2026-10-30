@@ -1,0 +1,121 @@
+name: Build desktop DMG
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/macos-client]
+    paths: [.github/workflows/build-desktop-dmg.yml]
+
+# This is an artifact build. It cannot publish releases or deploy the server.
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-dmg-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: Generate database types without connecting to a database
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgres://rakazo:rakazo@127.0.0.1:5433/rakazo
+      - name: Check and build the client
+        run: |
+          set -euo pipefail
+          pnpm --filter @rakazo/desktop check
+          pnpm --filter @rakazo/web build
+          pnpm --filter @rakazo/desktop build
+        env:
+          RAKAZO_ALLOW_DEV_SECRETS: "1"
+      - name: Prepare a universal preview build
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const { version, build } = JSON.parse(readFileSync("package.json", "utf8"));
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
+          const manifest = {
+            version,
+            commit: process.env.GITHUB_SHA,
+            architecture: "universal",
+            signing: "ad-hoc",
+            notarized: false,
+            workflowRun: `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          writeFileSync("dmg-source-manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+          writeFileSync("dmg-build-config.json", JSON.stringify({
+            ...build,
+            // Preview artifacts do not use or modify the stable signing workflow.
+            mac: { ...build.mac, identity: "-", notarize: false },
+            artifactName: "Rakazo-${version}-${arch}-preview.${ext}",
+            extraResources: [
+              ...build.extraResources,
+              { from: "dmg-source-manifest.json", to: "source-manifest.json" },
+            ],
+            // A fork's client must never install an upstream binary over this snapshot.
+            publish: [{ provider: "github", owner, repo }],
+          }, null, 2) + "\n");
+          NODE
+      - name: Package DMG without publishing a release
+        run: >-
+          pnpm --filter @rakazo/desktop exec electron-builder
+          --config dmg-build-config.json --mac dmg --universal --publish never
+      - name: Verify both architectures and packaged native dependencies
+        run: |
+          set -euo pipefail
+          app="$PWD/apps/desktop/out/mac-universal/Rakazo.app"
+          test -f "$app/Contents/Resources/source-manifest.json"
+          codesign --verify --deep --strict "$app"
+          lipo "$app/Contents/MacOS/Rakazo" -verify_arch arm64 x86_64
+          native="$app/Contents/Resources/app.asar.unpacked/node_modules"
+          lipo "$native/@koromix/koffi-darwin-x64/darwin_x64/koffi.node" -verify_arch x86_64
+          lipo "$native/@koromix/koffi-darwin-arm64/darwin_arm64/koffi.node" -verify_arch arm64
+          lipo "$native/@oxc-parser/binding-darwin-x64/parser.darwin-x64.node" -verify_arch x86_64
+          lipo "$native/@oxc-parser/binding-darwin-arm64/parser.darwin-arm64.node" -verify_arch arm64
+          ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Rakazo" -e '
+            const { createRequire } = require("node:module");
+            const appRequire = createRequire(`${process.argv[1]}/Contents/Resources/app.asar/package.json`);
+            if (appRequire("koffi").load(null).func("int getpid()")() !== process.pid) {
+              throw new Error("Packaged native bridge dependency failed");
+            }
+            const native = `${process.argv[1]}/Contents/Resources/app.asar.unpacked/node_modules`;
+            const parser = appRequire(`${native}/@oxc-parser/binding-darwin-${process.arch}/parser.darwin-${process.arch}.node`);
+            if (parser.parseSync("smoke.js", "const ready = true;").errors.length !== 0) {
+              throw new Error("Packaged monitoring parser dependency failed");
+            }
+          ' "$app"
+          grep -Fqx "owner: $GITHUB_REPOSITORY_OWNER" "$app/Contents/Resources/app-update.yml"
+          grep -Fqx "repo: ${GITHUB_REPOSITORY#*/}" "$app/Contents/Resources/app-update.yml"
+          cp apps/desktop/dmg-source-manifest.json apps/desktop/out/source-manifest.json
+          cd apps/desktop/out
+          shasum -a 256 ./*.dmg > SHA256SUMS.txt
+          hdiutil verify ./*.dmg
+      - name: Retain DMG, checksum, and source manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rakazo-dmg-${{ github.sha }}
+          path: |
+            apps/desktop/out/*.dmg
+            apps/desktop/out/SHA256SUMS.txt
+            apps/desktop/out/source-manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

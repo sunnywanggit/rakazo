@@ -70,3 +70,20 @@ git push origin v0.1.1
 
 The workflow refuses tags that do not match the desktop version, are not on
 `main`, or are not newer than the latest published release.
+
+## Build a client snapshot without a release
+
+`build-desktop-dmg.yml` produces an ad-hoc signed, unnotarized universal DMG
+on macOS without Apple credentials. It runs manually or when its workflow file
+is pushed to `build/macos-client`. Build from the desired source commit;
+uncommitted files on another computer are not part of the artifact.
+
+Download the `rakazo-dmg-<commit>` artifact from the workflow run. It includes
+the DMG, SHA-256 checksum, and source manifest. The manifest is also included
+inside the app. Updates use the repository that built the snapshot, rather
+than replacing it with a binary from the upstream release channel.
+
+This workflow does not publish a release, build server images, or deploy a
+server. macOS installation and connection to an existing instance still need
+verification on the target Mac. For a signed and notarized distribution, use
+the stable release workflow and its required Apple credentials above.
